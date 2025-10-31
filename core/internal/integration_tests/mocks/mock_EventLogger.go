@@ -91,9 +91,9 @@ func (_c *MockEventLogger_Disconnect_Call) RunAndReturn(run func(net.Addr, strin
 	return _c
 }
 
-// TCPError provides a mock function with given fields: addr, id, reqAddr, err
-func (_m *MockEventLogger) TCPError(addr net.Addr, id string, reqAddr string, err error) {
-	_m.Called(addr, id, reqAddr, err)
+// TCPError provides a mock function with given fields: addr, id, reqAddr, err, upload, download
+func (_m *MockEventLogger) TCPError(addr net.Addr, id string, reqAddr string, err error, upload uint64, download uint64) {
+	_m.Called(addr, id, reqAddr, err, upload, download)
 }
 
 // MockEventLogger_TCPError_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TCPError'
@@ -106,13 +106,15 @@ type MockEventLogger_TCPError_Call struct {
 //   - id string
 //   - reqAddr string
 //   - err error
-func (_e *MockEventLogger_Expecter) TCPError(addr interface{}, id interface{}, reqAddr interface{}, err interface{}) *MockEventLogger_TCPError_Call {
-	return &MockEventLogger_TCPError_Call{Call: _e.mock.On("TCPError", addr, id, reqAddr, err)}
+//   - upload uint64
+//   - download uint64
+func (_e *MockEventLogger_Expecter) TCPError(addr interface{}, id interface{}, reqAddr interface{}, err interface{}, upload interface{}, download interface{}) *MockEventLogger_TCPError_Call {
+	return &MockEventLogger_TCPError_Call{Call: _e.mock.On("TCPError", addr, id, reqAddr, err, upload, download)}
 }
 
-func (_c *MockEventLogger_TCPError_Call) Run(run func(addr net.Addr, id string, reqAddr string, err error)) *MockEventLogger_TCPError_Call {
+func (_c *MockEventLogger_TCPError_Call) Run(run func(addr net.Addr, id string, reqAddr string, err error, upload uint64, download uint64)) *MockEventLogger_TCPError_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(net.Addr), args[1].(string), args[2].(string), args[3].(error))
+		run(args[0].(net.Addr), args[1].(string), args[2].(string), args[3].(error), args[4].(uint64), args[5].(uint64))
 	})
 	return _c
 }
@@ -122,7 +124,7 @@ func (_c *MockEventLogger_TCPError_Call) Return() *MockEventLogger_TCPError_Call
 	return _c
 }
 
-func (_c *MockEventLogger_TCPError_Call) RunAndReturn(run func(net.Addr, string, string, error)) *MockEventLogger_TCPError_Call {
+func (_c *MockEventLogger_TCPError_Call) RunAndReturn(run func(net.Addr, string, string, error, uint64, uint64)) *MockEventLogger_TCPError_Call {
 	_c.Run(run)
 	return _c
 }
@@ -162,9 +164,9 @@ func (_c *MockEventLogger_TCPRequest_Call) RunAndReturn(run func(net.Addr, strin
 	return _c
 }
 
-// UDPError provides a mock function with given fields: addr, id, sessionID, err
-func (_m *MockEventLogger) UDPError(addr net.Addr, id string, sessionID uint32, err error) {
-	_m.Called(addr, id, sessionID, err)
+// UDPError provides a mock function with given fields: addr, id, sessionID, err, upload, download
+func (_m *MockEventLogger) UDPError(addr net.Addr, id string, sessionID uint32, err error, upload uint64, download uint64) {
+	_m.Called(addr, id, sessionID, err, upload, download)
 }
 
 // MockEventLogger_UDPError_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UDPError'
@@ -177,13 +179,15 @@ type MockEventLogger_UDPError_Call struct {
 //   - id string
 //   - sessionID uint32
 //   - err error
-func (_e *MockEventLogger_Expecter) UDPError(addr interface{}, id interface{}, sessionID interface{}, err interface{}) *MockEventLogger_UDPError_Call {
-	return &MockEventLogger_UDPError_Call{Call: _e.mock.On("UDPError", addr, id, sessionID, err)}
+//   - upload uint64
+//   - download uint64
+func (_e *MockEventLogger_Expecter) UDPError(addr interface{}, id interface{}, sessionID interface{}, err interface{}, upload interface{}, download interface{}) *MockEventLogger_UDPError_Call {
+	return &MockEventLogger_UDPError_Call{Call: _e.mock.On("UDPError", addr, id, sessionID, err, upload, download)}
 }
 
-func (_c *MockEventLogger_UDPError_Call) Run(run func(addr net.Addr, id string, sessionID uint32, err error)) *MockEventLogger_UDPError_Call {
+func (_c *MockEventLogger_UDPError_Call) Run(run func(addr net.Addr, id string, sessionID uint32, err error, upload uint64, download uint64)) *MockEventLogger_UDPError_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(net.Addr), args[1].(string), args[2].(uint32), args[3].(error))
+		run(args[0].(net.Addr), args[1].(string), args[2].(uint32), args[3].(error), args[4].(uint64), args[5].(uint64))
 	})
 	return _c
 }
@@ -193,7 +197,7 @@ func (_c *MockEventLogger_UDPError_Call) Return() *MockEventLogger_UDPError_Call
 	return _c
 }
 
-func (_c *MockEventLogger_UDPError_Call) RunAndReturn(run func(net.Addr, string, uint32, error)) *MockEventLogger_UDPError_Call {
+func (_c *MockEventLogger_UDPError_Call) RunAndReturn(run func(net.Addr, string, uint32, error, uint64, uint64)) *MockEventLogger_UDPError_Call {
 	_c.Run(run)
 	return _c
 }

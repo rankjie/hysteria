@@ -173,7 +173,7 @@ func TestClientServerUDPIdleTimeout(t *testing.T) {
 		sobConnChCloseFunc()
 		return nil
 	})
-	eventLogger.EXPECT().UDPError(mock.Anything, mock.Anything, uint32(1), nil).Once()
+	eventLogger.EXPECT().UDPError(mock.Anything, mock.Anything, uint32(1), nil, mock.Anything, mock.Anything).Once()
 	time.Sleep(3 * time.Second)
 }
 
