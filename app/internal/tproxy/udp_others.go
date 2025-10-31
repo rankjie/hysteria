@@ -18,7 +18,7 @@ type UDPTProxy struct {
 
 type UDPEventLogger interface {
 	Connect(addr, reqAddr net.Addr)
-	Error(addr, reqAddr net.Addr, err error)
+	Error(addr, reqAddr net.Addr, err error, upload, download uint64)
 }
 
 func (r *UDPTProxy) ListenAndServe(laddr *net.UDPAddr) error {

@@ -917,11 +917,23 @@ func (l *socks5Logger) TCPRequest(addr net.Addr, reqAddr string) {
 	logger.Debug("SOCKS5 TCP request", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr))
 }
 
-func (l *socks5Logger) TCPError(addr net.Addr, reqAddr string, err error) {
+func (l *socks5Logger) TCPError(addr net.Addr, reqAddr string, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("SOCKS5 TCP closed", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr))
+		logger.Debug("SOCKS5 TCP closed",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("SOCKS5 TCP error", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr), zap.Error(err))
+		logger.Warn("SOCKS5 TCP error",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -929,11 +941,21 @@ func (l *socks5Logger) UDPRequest(addr net.Addr) {
 	logger.Debug("SOCKS5 UDP request", zap.String("addr", addr.String()))
 }
 
-func (l *socks5Logger) UDPError(addr net.Addr, err error) {
+func (l *socks5Logger) UDPError(addr net.Addr, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("SOCKS5 UDP closed", zap.String("addr", addr.String()))
+		logger.Debug("SOCKS5 UDP closed",
+			zap.String("addr", addr.String()),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("SOCKS5 UDP error", zap.String("addr", addr.String()), zap.Error(err))
+		logger.Warn("SOCKS5 UDP error",
+			zap.String("addr", addr.String()),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -943,11 +965,23 @@ func (l *httpLogger) ConnectRequest(addr net.Addr, reqAddr string) {
 	logger.Debug("HTTP CONNECT request", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr))
 }
 
-func (l *httpLogger) ConnectError(addr net.Addr, reqAddr string, err error) {
+func (l *httpLogger) ConnectError(addr net.Addr, reqAddr string, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("HTTP CONNECT closed", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr))
+		logger.Debug("HTTP CONNECT closed",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("HTTP CONNECT error", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr), zap.Error(err))
+		logger.Warn("HTTP CONNECT error",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -955,11 +989,23 @@ func (l *httpLogger) HTTPRequest(addr net.Addr, reqURL string) {
 	logger.Debug("HTTP request", zap.String("addr", addr.String()), zap.String("reqURL", reqURL))
 }
 
-func (l *httpLogger) HTTPError(addr net.Addr, reqURL string, err error) {
+func (l *httpLogger) HTTPError(addr net.Addr, reqURL string, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("HTTP closed", zap.String("addr", addr.String()), zap.String("reqURL", reqURL))
+		logger.Debug("HTTP closed",
+			zap.String("addr", addr.String()),
+			zap.String("reqURL", reqURL),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("HTTP error", zap.String("addr", addr.String()), zap.String("reqURL", reqURL), zap.Error(err))
+		logger.Warn("HTTP error",
+			zap.String("addr", addr.String()),
+			zap.String("reqURL", reqURL),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -969,11 +1015,21 @@ func (l *tcpLogger) Connect(addr net.Addr) {
 	logger.Debug("TCP forwarding connect", zap.String("addr", addr.String()))
 }
 
-func (l *tcpLogger) Error(addr net.Addr, err error) {
+func (l *tcpLogger) Error(addr net.Addr, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("TCP forwarding closed", zap.String("addr", addr.String()))
+		logger.Debug("TCP forwarding closed",
+			zap.String("addr", addr.String()),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("TCP forwarding error", zap.String("addr", addr.String()), zap.Error(err))
+		logger.Warn("TCP forwarding error",
+			zap.String("addr", addr.String()),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -983,11 +1039,21 @@ func (l *udpLogger) Connect(addr net.Addr) {
 	logger.Debug("UDP forwarding connect", zap.String("addr", addr.String()))
 }
 
-func (l *udpLogger) Error(addr net.Addr, err error) {
+func (l *udpLogger) Error(addr net.Addr, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("UDP forwarding closed", zap.String("addr", addr.String()))
+		logger.Debug("UDP forwarding closed",
+			zap.String("addr", addr.String()),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("UDP forwarding error", zap.String("addr", addr.String()), zap.Error(err))
+		logger.Warn("UDP forwarding error",
+			zap.String("addr", addr.String()),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -997,11 +1063,23 @@ func (l *tcpTProxyLogger) Connect(addr, reqAddr net.Addr) {
 	logger.Debug("TCP transparent proxy connect", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()))
 }
 
-func (l *tcpTProxyLogger) Error(addr, reqAddr net.Addr, err error) {
+func (l *tcpTProxyLogger) Error(addr, reqAddr net.Addr, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("TCP transparent proxy closed", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()))
+		logger.Debug("TCP transparent proxy closed",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr.String()),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("TCP transparent proxy error", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()), zap.Error(err))
+		logger.Warn("TCP transparent proxy error",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr.String()),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -1011,11 +1089,23 @@ func (l *udpTProxyLogger) Connect(addr, reqAddr net.Addr) {
 	logger.Debug("UDP transparent proxy connect", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()))
 }
 
-func (l *udpTProxyLogger) Error(addr, reqAddr net.Addr, err error) {
+func (l *udpTProxyLogger) Error(addr, reqAddr net.Addr, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("UDP transparent proxy closed", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()))
+		logger.Debug("UDP transparent proxy closed",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr.String()),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("UDP transparent proxy error", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()), zap.Error(err))
+		logger.Warn("UDP transparent proxy error",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr.String()),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -1025,11 +1115,23 @@ func (l *tcpRedirectLogger) Connect(addr, reqAddr net.Addr) {
 	logger.Debug("TCP redirect connect", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()))
 }
 
-func (l *tcpRedirectLogger) Error(addr, reqAddr net.Addr, err error) {
+func (l *tcpRedirectLogger) Error(addr, reqAddr net.Addr, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("TCP redirect closed", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()))
+		logger.Debug("TCP redirect closed",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr.String()),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("TCP redirect error", zap.String("addr", addr.String()), zap.String("reqAddr", reqAddr.String()), zap.Error(err))
+		logger.Warn("TCP redirect error",
+			zap.String("addr", addr.String()),
+			zap.String("reqAddr", reqAddr.String()),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -1039,11 +1141,23 @@ func (l *tunLogger) TCPRequest(addr, reqAddr string) {
 	logger.Debug("TUN TCP request", zap.String("addr", addr), zap.String("reqAddr", reqAddr))
 }
 
-func (l *tunLogger) TCPError(addr, reqAddr string, err error) {
+func (l *tunLogger) TCPError(addr, reqAddr string, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("TUN TCP closed", zap.String("addr", addr), zap.String("reqAddr", reqAddr))
+		logger.Debug("TUN TCP closed",
+			zap.String("addr", addr),
+			zap.String("reqAddr", reqAddr),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("TUN TCP error", zap.String("addr", addr), zap.String("reqAddr", reqAddr), zap.Error(err))
+		logger.Warn("TUN TCP error",
+			zap.String("addr", addr),
+			zap.String("reqAddr", reqAddr),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -1051,10 +1165,20 @@ func (l *tunLogger) UDPRequest(addr string) {
 	logger.Debug("TUN UDP request", zap.String("addr", addr))
 }
 
-func (l *tunLogger) UDPError(addr string, err error) {
+func (l *tunLogger) UDPError(addr string, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("TUN UDP closed", zap.String("addr", addr))
+		logger.Debug("TUN UDP closed",
+			zap.String("addr", addr),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("TUN UDP error", zap.String("addr", addr), zap.Error(err))
+		logger.Warn("TUN UDP error",
+			zap.String("addr", addr),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }

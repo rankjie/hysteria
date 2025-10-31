@@ -16,7 +16,7 @@ type TCPTProxy struct {
 
 type TCPEventLogger interface {
 	Connect(addr, reqAddr net.Addr)
-	Error(addr, reqAddr net.Addr, err error)
+	Error(addr, reqAddr net.Addr, err error, upload, download uint64)
 }
 
 func (r *TCPTProxy) ListenAndServe(laddr *net.TCPAddr) error {
