@@ -52,16 +52,24 @@ func copyTwoWayEx(id string, serverRw, remoteRw io.ReadWriter, l TrafficLogger, 
 	return <-errChan
 }
 
-// copyTwoWay is the "fast-path" version of copyTwoWayEx that does not log traffic or update stream stats.
+// copyTwoWay is the "fast-path" version of copyTwoWayEx that does not log traffic but still updates stream stats.
 // It uses the built-in io.Copy instead of our own copyBufferLog.
-func copyTwoWay(serverRw, remoteRw io.ReadWriter) error {
+func copyTwoWay(serverRw, remoteRw io.ReadWriter, stats *StreamStats) error {
 	errChan := make(chan error, 2)
 	go func() {
-		_, err := io.Copy(serverRw, remoteRw)
+		n, err := io.Copy(serverRw, remoteRw)
+		if stats != nil && n > 0 {
+			stats.LastActiveTime.Store(time.Now())
+			stats.Rx.Add(uint64(n))
+		}
 		errChan <- err
 	}()
 	go func() {
-		_, err := io.Copy(remoteRw, serverRw)
+		n, err := io.Copy(remoteRw, serverRw)
+		if stats != nil && n > 0 {
+			stats.LastActiveTime.Store(time.Now())
+			stats.Tx.Add(uint64(n))
+		}
 		errChan <- err
 	}()
 	// Block until one of the two goroutines returns

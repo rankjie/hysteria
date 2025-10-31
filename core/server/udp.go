@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/apernet/quic-go"
@@ -26,7 +27,7 @@ type udpIO interface {
 
 type udpEventLogger interface {
 	New(sessionID uint32, reqAddr string)
-	Close(sessionID uint32, err error)
+	Close(sessionID uint32, err error, upload, download uint64)
 }
 
 type udpSessionEntry struct {
@@ -38,17 +39,20 @@ type udpSessionEntry struct {
 	IO           udpIO
 
 	DialFunc func(addr string, firstMsgData []byte) (conn UDPConn, actualAddr string, err error)
-	ExitFunc func(err error)
+	ExitFunc func(err error, upload, download uint64)
 
 	conn     UDPConn
 	connLock sync.Mutex
 	closed   bool
+
+	tx atomic.Uint64
+	rx atomic.Uint64
 }
 
 func newUDPSessionEntry(
 	id uint32, io udpIO,
 	dialFunc func(string, []byte) (UDPConn, string, error),
-	exitFunc func(error),
+	exitFunc func(err error, upload, download uint64),
 ) (e *udpSessionEntry) {
 	e = &udpSessionEntry{
 		ID:   id,
@@ -81,7 +85,9 @@ func (e *udpSessionEntry) CloseWithErr(err error) {
 	}
 	e.connLock.Unlock()
 
-	e.ExitFunc(err)
+	upload := e.tx.Load()
+	download := e.rx.Load()
+	e.ExitFunc(err, upload, download)
 }
 
 // Feed feeds a UDP message to the session.
@@ -108,7 +114,11 @@ func (e *udpSessionEntry) Feed(msg *protocol.UDPMessage) (int, error) {
 		addr = e.OverrideAddr
 	}
 
-	return e.conn.WriteTo(dfMsg.Data, addr)
+	n, err := e.conn.WriteTo(dfMsg.Data, addr)
+	if n > 0 {
+		e.tx.Add(uint64(n))
+	}
+	return n, err
 }
 
 // initConn initializes the UDP connection of the session.
@@ -157,6 +167,9 @@ func (e *udpSessionEntry) receiveLoop() {
 		if err != nil {
 			e.CloseWithErr(err)
 			return
+		}
+		if udpN > 0 {
+			e.rx.Add(uint64(udpN))
 		}
 		e.Last.Set(time.Now())
 
@@ -297,9 +310,9 @@ func (m *udpSessionManager) feed(msg *protocol.UDPMessage) {
 			conn, err = m.io.UDP(addr)
 			return conn, actualAddr, err
 		}
-		exitFunc := func(err error) {
+		exitFunc := func(err error, upload, download uint64) {
 			// Log the event
-			m.eventLogger.Close(entry.ID, err)
+			m.eventLogger.Close(entry.ID, err, upload, download)
 
 			// Remove the session from the map
 			m.mutex.Lock()

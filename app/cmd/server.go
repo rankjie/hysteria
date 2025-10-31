@@ -1017,11 +1017,25 @@ func (l *serverLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 	logger.Debug("TCP request", zap.String("addr", addr.String()), zap.String("id", id), zap.String("reqAddr", reqAddr))
 }
 
-func (l *serverLogger) TCPError(addr net.Addr, id, reqAddr string, err error) {
+func (l *serverLogger) TCPError(addr net.Addr, id, reqAddr string, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("TCP closed", zap.String("addr", addr.String()), zap.String("id", id), zap.String("reqAddr", reqAddr))
+		logger.Debug("TCP closed",
+			zap.String("addr", addr.String()),
+			zap.String("id", id),
+			zap.String("reqAddr", reqAddr),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("TCP error", zap.String("addr", addr.String()), zap.String("id", id), zap.String("reqAddr", reqAddr), zap.Error(err))
+		logger.Warn("TCP error",
+			zap.String("addr", addr.String()),
+			zap.String("id", id),
+			zap.String("reqAddr", reqAddr),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 
@@ -1029,11 +1043,25 @@ func (l *serverLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, re
 	logger.Debug("UDP request", zap.String("addr", addr.String()), zap.String("id", id), zap.Uint32("sessionID", sessionID), zap.String("reqAddr", reqAddr))
 }
 
-func (l *serverLogger) UDPError(addr net.Addr, id string, sessionID uint32, err error) {
+func (l *serverLogger) UDPError(addr net.Addr, id string, sessionID uint32, err error, upload, download uint64) {
+	total := upload + download
 	if err == nil {
-		logger.Debug("UDP closed", zap.String("addr", addr.String()), zap.String("id", id), zap.Uint32("sessionID", sessionID))
+		logger.Debug("UDP closed",
+			zap.String("addr", addr.String()),
+			zap.String("id", id),
+			zap.Uint32("sessionID", sessionID),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	} else {
-		logger.Warn("UDP error", zap.String("addr", addr.String()), zap.String("id", id), zap.Uint32("sessionID", sessionID), zap.Error(err))
+		logger.Warn("UDP error",
+			zap.String("addr", addr.String()),
+			zap.String("id", id),
+			zap.Uint32("sessionID", sessionID),
+			zap.Error(err),
+			zap.Uint64("total", total),
+			zap.Uint64("upload", upload),
+			zap.Uint64("download", download))
 	}
 }
 

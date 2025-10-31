@@ -279,7 +279,7 @@ func (h *h3sHandler) handleTCPRequest(stream *utils.QStream) {
 		_ = stream.Close()
 		// Log the error
 		if h.config.EventLogger != nil {
-			h.config.EventLogger.TCPError(h.conn.RemoteAddr(), h.authID, reqAddr, err)
+			h.config.EventLogger.TCPError(h.conn.RemoteAddr(), h.authID, reqAddr, err, 0, 0)
 		}
 		return
 	}
@@ -297,10 +297,12 @@ func (h *h3sHandler) handleTCPRequest(stream *utils.QStream) {
 		err = copyTwoWayEx(h.authID, stream, tConn, trafficLogger, streamStats)
 	} else {
 		// Use the fast path if no traffic logger is set
-		err = copyTwoWay(stream, tConn)
+		err = copyTwoWay(stream, tConn, streamStats)
 	}
 	if h.config.EventLogger != nil {
-		h.config.EventLogger.TCPError(h.conn.RemoteAddr(), h.authID, reqAddr, err)
+		upload := streamStats.Tx.Load()
+		download := streamStats.Rx.Load()
+		h.config.EventLogger.TCPError(h.conn.RemoteAddr(), h.authID, reqAddr, err, upload, download)
 	}
 	// Cleanup
 	_ = tConn.Close()
@@ -394,8 +396,8 @@ func (l *udpEventLoggerImpl) New(sessionID uint32, reqAddr string) {
 	}
 }
 
-func (l *udpEventLoggerImpl) Close(sessionID uint32, err error) {
+func (l *udpEventLoggerImpl) Close(sessionID uint32, err error, upload, download uint64) {
 	if l.EventLogger != nil {
-		l.EventLogger.UDPError(l.Conn.RemoteAddr(), l.AuthID, sessionID, err)
+		l.EventLogger.UDPError(l.Conn.RemoteAddr(), l.AuthID, sessionID, err, upload, download)
 	}
 }

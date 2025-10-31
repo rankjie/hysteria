@@ -200,9 +200,9 @@ type EventLogger interface {
 	Connect(addr net.Addr, id string, tx uint64)
 	Disconnect(addr net.Addr, id string, err error)
 	TCPRequest(addr net.Addr, id, reqAddr string)
-	TCPError(addr net.Addr, id, reqAddr string, err error)
+	TCPError(addr net.Addr, id, reqAddr string, err error, upload, download uint64)
 	UDPRequest(addr net.Addr, id string, sessionID uint32, reqAddr string)
-	UDPError(addr net.Addr, id string, sessionID uint32, err error)
+	UDPError(addr net.Addr, id string, sessionID uint32, err error, upload, download uint64)
 }
 
 type HyStream interface {
