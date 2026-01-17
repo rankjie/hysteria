@@ -3,6 +3,7 @@ package tproxy
 import (
 	"errors"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/apernet/go-tproxy"
@@ -22,7 +23,7 @@ type UDPTProxy struct {
 
 type UDPEventLogger interface {
 	Connect(addr, reqAddr net.Addr)
-	Error(addr, reqAddr net.Addr, err error)
+	Error(addr, reqAddr net.Addr, err error, upload, download uint64)
 }
 
 func (r *UDPTProxy) ListenAndServe(laddr *net.UDPAddr) error {
@@ -53,7 +54,7 @@ func (r *UDPTProxy) newPair(srcAddr, dstAddr *net.UDPAddr, initPkt []byte) {
 		// If closeErr is nil, it means we at least successfully sent the first packet
 		// and started forwarding, in which case we don't call the error logger.
 		if r.EventLogger != nil && closeErr != nil {
-			r.EventLogger.Error(srcAddr, dstAddr, closeErr)
+			r.EventLogger.Error(srcAddr, dstAddr, closeErr, 0, 0)
 		}
 	}()
 	conn, err := tproxy.DialUDP("udp", dstAddr, srcAddr)
@@ -76,8 +77,10 @@ func (r *UDPTProxy) newPair(srcAddr, dstAddr *net.UDPAddr, initPkt []byte) {
 		return
 	}
 	// Start forwarding
+	var upload, download uint64
+	atomic.AddUint64(&upload, uint64(len(initPkt)))
 	go func() {
-		err := r.forwarding(conn, hyConn, dstAddr.String())
+		err := r.forwarding(conn, hyConn, dstAddr.String(), &upload, &download)
 		_ = conn.Close()
 		_ = hyConn.Close()
 		if r.EventLogger != nil {
@@ -86,12 +89,14 @@ func (r *UDPTProxy) newPair(srcAddr, dstAddr *net.UDPAddr, initPkt []byte) {
 				// We don't consider deadline exceeded (timeout) an error
 				err = nil
 			}
-			r.EventLogger.Error(srcAddr, dstAddr, err)
+			upBytes := atomic.LoadUint64(&upload)
+			downBytes := atomic.LoadUint64(&download)
+			r.EventLogger.Error(srcAddr, dstAddr, err, upBytes, downBytes)
 		}
 	}()
 }
 
-func (r *UDPTProxy) forwarding(conn *net.UDPConn, hyConn client.HyUDPConn, dst string) error {
+func (r *UDPTProxy) forwarding(conn *net.UDPConn, hyConn client.HyUDPConn, dst string, upload, download *uint64) error {
 	errChan := make(chan error, 2)
 	// Local <- Remote
 	go func() {
@@ -101,11 +106,12 @@ func (r *UDPTProxy) forwarding(conn *net.UDPConn, hyConn client.HyUDPConn, dst s
 				errChan <- err
 				return
 			}
-			_, err = conn.Write(bs)
+			n, err := conn.Write(bs)
 			if err != nil {
 				errChan <- err
 				return
 			}
+			atomic.AddUint64(download, uint64(n))
 			_ = r.updateConnDeadline(conn)
 		}
 	}()
@@ -121,6 +127,7 @@ func (r *UDPTProxy) forwarding(conn *net.UDPConn, hyConn client.HyUDPConn, dst s
 					errChan <- err
 					return
 				}
+				atomic.AddUint64(upload, uint64(n))
 			}
 			if err != nil {
 				errChan <- err

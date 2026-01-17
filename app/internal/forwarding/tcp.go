@@ -15,7 +15,7 @@ type TCPTunnel struct {
 
 type TCPEventLogger interface {
 	Connect(addr net.Addr)
-	Error(addr net.Addr, err error)
+	Error(addr net.Addr, err error, upload, download uint64)
 }
 
 func (t *TCPTunnel) Serve(listener net.Listener) error {
@@ -35,9 +35,10 @@ func (t *TCPTunnel) handle(conn net.Conn) {
 		t.EventLogger.Connect(conn.RemoteAddr())
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if t.EventLogger != nil {
-			t.EventLogger.Error(conn.RemoteAddr(), closeErr)
+			t.EventLogger.Error(conn.RemoteAddr(), closeErr, upload, download)
 		}
 	}()
 
@@ -49,14 +50,26 @@ func (t *TCPTunnel) handle(conn net.Conn) {
 	defer rc.Close()
 
 	// Start forwarding
-	copyErrChan := make(chan error, 2)
+	type copyResult struct {
+		n   uint64
+		err error
+	}
+	copyErrChan := make(chan copyResult, 2)
 	go func() {
-		_, copyErr := io.Copy(rc, conn)
-		copyErrChan <- copyErr
+		n, copyErr := io.Copy(rc, conn)
+		copyErrChan <- copyResult{uint64(n), copyErr}
 	}()
 	go func() {
-		_, copyErr := io.Copy(conn, rc)
-		copyErrChan <- copyErr
+		n, copyErr := io.Copy(conn, rc)
+		copyErrChan <- copyResult{uint64(n), copyErr}
 	}()
-	closeErr = <-copyErrChan
+	r1 := <-copyErrChan
+	r2 := <-copyErrChan
+	upload = r1.n
+	download = r2.n
+	if r1.err != nil {
+		closeErr = r1.err
+	} else {
+		closeErr = r2.err
+	}
 }

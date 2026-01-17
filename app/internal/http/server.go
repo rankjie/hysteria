@@ -31,9 +31,9 @@ type Server struct {
 
 type EventLogger interface {
 	ConnectRequest(addr net.Addr, reqAddr string)
-	ConnectError(addr net.Addr, reqAddr string, err error)
+	ConnectError(addr net.Addr, reqAddr string, err error, upload, download uint64)
 	HTTPRequest(addr net.Addr, reqURL string)
-	HTTPError(addr net.Addr, reqURL string, err error)
+	HTTPError(addr net.Addr, reqURL string, err error, upload, download uint64)
 }
 
 func (s *Server) Serve(listener net.Listener) error {
@@ -149,9 +149,10 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 		s.EventLogger.ConnectRequest(conn.RemoteAddr(), reqAddr)
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if s.EventLogger != nil {
-			s.EventLogger.ConnectError(conn.RemoteAddr(), reqAddr, closeErr)
+			s.EventLogger.ConnectError(conn.RemoteAddr(), reqAddr, closeErr, upload, download)
 		}
 	}()
 
@@ -166,16 +167,28 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 
 	// Send 200 OK response and start relaying
 	_ = sendSimpleResponse(conn, req, http.StatusOK)
-	copyErrChan := make(chan error, 2)
+	type copyResult struct {
+		n   uint64
+		err error
+	}
+	copyErrChan := make(chan copyResult, 2)
 	go func() {
-		_, err := io.Copy(rConn, conn)
-		copyErrChan <- err
+		n, err := io.Copy(rConn, conn)
+		copyErrChan <- copyResult{uint64(n), err}
 	}()
 	go func() {
-		_, err := io.Copy(conn, rConn)
-		copyErrChan <- err
+		n, err := io.Copy(conn, rConn)
+		copyErrChan <- copyResult{uint64(n), err}
 	}()
-	closeErr = <-copyErrChan
+	r1 := <-copyErrChan
+	r2 := <-copyErrChan
+	upload = r1.n
+	download = r2.n
+	if r1.err != nil {
+		closeErr = r1.err
+	} else {
+		closeErr = r2.err
+	}
 }
 
 func (s *Server) handleRequest(conn net.Conn, req *http.Request) bool {
@@ -199,14 +212,20 @@ func (s *Server) handleRequest(conn net.Conn, req *http.Request) bool {
 		s.EventLogger.HTTPRequest(conn.RemoteAddr(), req.URL.String())
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if s.EventLogger != nil {
-			s.EventLogger.HTTPError(conn.RemoteAddr(), req.URL.String(), closeErr)
+			s.EventLogger.HTTPError(conn.RemoteAddr(), req.URL.String(), closeErr, upload, download)
 		}
 	}()
 
 	if s.httpClient == nil {
 		s.initHTTPClient()
+	}
+
+	// Track request body size
+	if req.ContentLength > 0 {
+		upload = uint64(req.ContentLength)
 	}
 
 	// Do the request and send the response back
@@ -222,6 +241,11 @@ func (s *Server) handleRequest(conn net.Conn, req *http.Request) bool {
 		resp.Header.Set("Connection", "keep-alive")
 		resp.Header.Set("Proxy-Connection", "keep-alive")
 		resp.Header.Set("Keep-Alive", "timeout=60")
+	}
+
+	// Track response body size
+	if resp.ContentLength > 0 {
+		download = uint64(resp.ContentLength)
 	}
 
 	closeErr = resp.Write(conn)

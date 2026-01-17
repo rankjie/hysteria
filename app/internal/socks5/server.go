@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"sync/atomic"
 
 	"github.com/txthinking/socks5"
 
@@ -22,9 +23,9 @@ type Server struct {
 
 type EventLogger interface {
 	TCPRequest(addr net.Addr, reqAddr string)
-	TCPError(addr net.Addr, reqAddr string, err error)
+	TCPError(addr net.Addr, reqAddr string, err error, upload, download uint64)
 	UDPRequest(addr net.Addr)
-	UDPError(addr net.Addr, err error)
+	UDPError(addr net.Addr, err error, upload, download uint64)
 }
 
 func (s *Server) Serve(listener net.Listener) error {
@@ -128,9 +129,10 @@ func (s *Server) handleTCP(conn net.Conn, req *socks5.Request) {
 		s.EventLogger.TCPRequest(conn.RemoteAddr(), addr)
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if s.EventLogger != nil {
-			s.EventLogger.TCPError(conn.RemoteAddr(), addr, closeErr)
+			s.EventLogger.TCPError(conn.RemoteAddr(), addr, closeErr, upload, download)
 		}
 	}()
 
@@ -145,16 +147,28 @@ func (s *Server) handleTCP(conn net.Conn, req *socks5.Request) {
 
 	// Send reply and start relaying
 	_ = sendSimpleReply(conn, socks5.RepSuccess)
-	copyErrChan := make(chan error, 2)
+	type copyResult struct {
+		n   uint64
+		err error
+	}
+	copyErrChan := make(chan copyResult, 2)
 	go func() {
-		_, err := io.Copy(rConn, conn)
-		copyErrChan <- err
+		n, err := io.Copy(rConn, conn)
+		copyErrChan <- copyResult{uint64(n), err}
 	}()
 	go func() {
-		_, err := io.Copy(conn, rConn)
-		copyErrChan <- err
+		n, err := io.Copy(conn, rConn)
+		copyErrChan <- copyResult{uint64(n), err}
 	}()
-	closeErr = <-copyErrChan
+	r1 := <-copyErrChan
+	r2 := <-copyErrChan
+	upload = r1.n
+	download = r2.n
+	if r1.err != nil {
+		closeErr = r1.err
+	} else {
+		closeErr = r2.err
+	}
 }
 
 func (s *Server) handleUDP(conn net.Conn, req *socks5.Request) {
@@ -165,9 +179,10 @@ func (s *Server) handleUDP(conn net.Conn, req *socks5.Request) {
 		s.EventLogger.UDPRequest(conn.RemoteAddr())
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if s.EventLogger != nil {
-			s.EventLogger.UDPError(conn.RemoteAddr(), closeErr)
+			s.EventLogger.UDPError(conn.RemoteAddr(), closeErr, upload, download)
 		}
 	}()
 
@@ -210,7 +225,7 @@ func (s *Server) handleUDP(conn net.Conn, req *socks5.Request) {
 	// UDP relay & SOCKS5 connection holder
 	errChan := make(chan error, 2)
 	go func() {
-		err := s.udpServer(udpConn, hyUDP)
+		err := s.udpServer(udpConn, hyUDP, &upload, &download)
 		errChan <- err
 	}()
 	go func() {
@@ -220,7 +235,7 @@ func (s *Server) handleUDP(conn net.Conn, req *socks5.Request) {
 	closeErr = <-errChan
 }
 
-func (s *Server) udpServer(udpConn *net.UDPConn, hyUDP client.HyUDPConn) error {
+func (s *Server) udpServer(udpConn *net.UDPConn, hyUDP client.HyUDPConn, upload, download *uint64) error {
 	var clientAddr *net.UDPAddr
 	buf := make([]byte, udpBufferSize)
 	// local -> remote
@@ -261,7 +276,8 @@ func (s *Server) udpServer(udpConn *net.UDPConn, hyUDP client.HyUDPConn) error {
 						addr = addr[1:]
 					}
 					d := socks5.NewDatagram(atyp, addr, port, bs)
-					_, _ = udpConn.WriteToUDP(d.Bytes(), clientAddr)
+					n, _ := udpConn.WriteToUDP(d.Bytes(), clientAddr)
+					atomic.AddUint64(download, uint64(n))
 				}
 			}()
 		} else if !clientAddr.IP.Equal(cAddr.IP) || clientAddr.Port != cAddr.Port {
@@ -270,6 +286,7 @@ func (s *Server) udpServer(udpConn *net.UDPConn, hyUDP client.HyUDPConn) error {
 		}
 		// Send to remote
 		_ = hyUDP.Send(d.Data, d.Address())
+		atomic.AddUint64(upload, uint64(len(d.Data)))
 	}
 }
 

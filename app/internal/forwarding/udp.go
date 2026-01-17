@@ -35,14 +35,20 @@ func (t *atomicTime) Get() time.Time {
 }
 
 type sessionEntry struct {
-	HyConn  client.HyUDPConn
-	Last    *atomicTime
-	Timeout bool // true if the session is closed due to timeout
+	HyConn   client.HyUDPConn
+	Last     *atomicTime
+	Timeout  bool   // true if the session is closed due to timeout
+	Upload   uint64 // bytes sent to remote
+	Download uint64 // bytes received from remote
 }
 
 func (e *sessionEntry) Feed(data []byte, addr string) error {
 	e.Last.Set(time.Now())
-	return e.HyConn.Send(data, addr)
+	err := e.HyConn.Send(data, addr)
+	if err == nil {
+		atomic.AddUint64(&e.Upload, uint64(len(data)))
+	}
+	return err
 }
 
 func (e *sessionEntry) ReceiveLoop(pc net.PacketConn, addr net.Addr) error {
@@ -51,10 +57,11 @@ func (e *sessionEntry) ReceiveLoop(pc net.PacketConn, addr net.Addr) error {
 		if err != nil {
 			return err
 		}
-		_, err = pc.WriteTo(data, addr)
+		n, err := pc.WriteTo(data, addr)
 		if err != nil {
 			return err
 		}
+		atomic.AddUint64(&e.Download, uint64(n))
 		e.Last.Set(time.Now())
 	}
 }
@@ -71,7 +78,7 @@ type UDPTunnel struct {
 
 type UDPEventLogger interface {
 	Connect(addr net.Addr)
-	Error(addr net.Addr, err error)
+	Error(addr net.Addr, err error, upload, download uint64)
 }
 
 func (t *UDPTunnel) Serve(pc net.PacketConn) error {
@@ -139,7 +146,7 @@ func (t *UDPTunnel) feed(pc net.PacketConn, addr net.Addr, data []byte) {
 		hyConn, err := t.HyClient.UDP()
 		if err != nil {
 			if t.EventLogger != nil {
-				t.EventLogger.Error(addr, err)
+				t.EventLogger.Error(addr, err, 0, 0)
 			}
 			return
 		}
@@ -151,17 +158,19 @@ func (t *UDPTunnel) feed(pc net.PacketConn, addr net.Addr, data []byte) {
 		// Local <- Remote
 		go func() {
 			err := entry.ReceiveLoop(pc, addr)
+			upload := atomic.LoadUint64(&entry.Upload)
+			download := atomic.LoadUint64(&entry.Download)
 			if !entry.Timeout {
 				_ = hyConn.Close()
 				if t.EventLogger != nil {
-					t.EventLogger.Error(addr, err)
+					t.EventLogger.Error(addr, err, upload, download)
 				}
 			} else {
 				// Connection already closed by timeout cleanup,
 				// no need to close again here.
 				// Use nil error to indicate timeout.
 				if t.EventLogger != nil {
-					t.EventLogger.Error(addr, nil)
+					t.EventLogger.Error(addr, nil, upload, download)
 				}
 			}
 			// Remove the session from the map

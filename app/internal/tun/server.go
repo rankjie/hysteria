@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync/atomic"
 
 	tun "github.com/apernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"
@@ -43,9 +44,9 @@ type Server struct {
 
 type EventLogger interface {
 	TCPRequest(addr, reqAddr string)
-	TCPError(addr, reqAddr string, err error)
+	TCPError(addr, reqAddr string, err error, upload, download uint64)
 	UDPRequest(addr string)
-	UDPError(addr string, err error)
+	UDPError(addr string, err error, upload, download uint64)
 }
 
 func (s *Server) Serve() error {
@@ -109,9 +110,10 @@ func (t *tunHandler) NewConnection(ctx context.Context, conn net.Conn, m metadat
 		t.EventLogger.TCPRequest(addr, reqAddr)
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if t.EventLogger != nil {
-			t.EventLogger.TCPError(addr, reqAddr, closeErr)
+			t.EventLogger.TCPError(addr, reqAddr, closeErr, upload, download)
 		}
 	}()
 	rc, err := t.HyClient.TCP(reqAddr)
@@ -123,19 +125,47 @@ func (t *tunHandler) NewConnection(ctx context.Context, conn net.Conn, m metadat
 	defer rc.Close()
 
 	// start forwarding
-	copyErrChan := make(chan error, 2)
+	type copyResult struct {
+		n   uint64
+		err error
+	}
+	copyErrChan := make(chan copyResult, 2)
 	go func() {
-		_, copyErr := io.Copy(rc, conn)
-		copyErrChan <- copyErr
+		n, copyErr := io.Copy(rc, conn)
+		copyErrChan <- copyResult{uint64(n), copyErr}
 	}()
 	go func() {
-		_, copyErr := io.Copy(conn, rc)
-		copyErrChan <- copyErr
+		n, copyErr := io.Copy(conn, rc)
+		copyErrChan <- copyResult{uint64(n), copyErr}
 	}()
 	select {
 	case <-ctx.Done():
 		closeErr = ctx.Err()
-	case closeErr = <-copyErrChan:
+		// Drain the results to get byte counts
+		for i := 0; i < 2; i++ {
+			select {
+			case r := <-copyErrChan:
+				if i == 0 {
+					upload = r.n
+				} else {
+					download = r.n
+				}
+			default:
+			}
+		}
+	case r := <-copyErrChan:
+		upload = r.n
+		closeErr = r.err
+		// Get second result
+		select {
+		case r2 := <-copyErrChan:
+			download = r2.n
+			if closeErr == nil {
+				closeErr = r2.err
+			}
+		case <-ctx.Done():
+			closeErr = ctx.Err()
+		}
 	}
 	return nil
 }
@@ -146,9 +176,12 @@ func (t *tunHandler) NewPacketConnection(ctx context.Context, conn network.Packe
 		t.EventLogger.UDPRequest(addr)
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if t.EventLogger != nil {
-			t.EventLogger.UDPError(addr, closeErr)
+			upBytes := atomic.LoadUint64(&upload)
+			downBytes := atomic.LoadUint64(&download)
+			t.EventLogger.UDPError(addr, closeErr, upBytes, downBytes)
 		}
 	}()
 	rc, err := t.HyClient.UDP()
@@ -180,6 +213,7 @@ func (t *tunHandler) NewPacketConnection(ctx context.Context, conn network.Packe
 				copyErrChan <- err
 				return
 			}
+			atomic.AddUint64(&download, uint64(len(bs)))
 		}
 	}()
 	// local -> remote
@@ -194,11 +228,13 @@ func (t *tunHandler) NewPacketConnection(ctx context.Context, conn network.Packe
 				copyErrChan <- err
 				return
 			}
+			pktLen := buffer.Len()
 			err = rc.Send(buffer.Bytes(), addr.String())
 			if err != nil {
 				copyErrChan <- err
 				return
 			}
+			atomic.AddUint64(&upload, uint64(pktLen))
 		}
 	}()
 	select {

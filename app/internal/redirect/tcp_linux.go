@@ -23,7 +23,7 @@ type TCPRedirect struct {
 
 type TCPEventLogger interface {
 	Connect(addr, reqAddr net.Addr)
-	Error(addr, reqAddr net.Addr, err error)
+	Error(addr, reqAddr net.Addr, err error, upload, download uint64)
 }
 
 func (r *TCPRedirect) ListenAndServe(laddr *net.TCPAddr) error {
@@ -53,9 +53,10 @@ func (r *TCPRedirect) handle(conn *net.TCPConn) {
 		r.EventLogger.Connect(conn.RemoteAddr(), dstAddr)
 	}
 	var closeErr error
+	var upload, download uint64
 	defer func() {
 		if r.EventLogger != nil {
-			r.EventLogger.Error(conn.RemoteAddr(), dstAddr, closeErr)
+			r.EventLogger.Error(conn.RemoteAddr(), dstAddr, closeErr, upload, download)
 		}
 	}()
 
@@ -67,16 +68,28 @@ func (r *TCPRedirect) handle(conn *net.TCPConn) {
 	defer rc.Close()
 
 	// Start forwarding
-	copyErrChan := make(chan error, 2)
+	type copyResult struct {
+		n   uint64
+		err error
+	}
+	copyErrChan := make(chan copyResult, 2)
 	go func() {
-		_, copyErr := io.Copy(rc, conn)
-		copyErrChan <- copyErr
+		n, copyErr := io.Copy(rc, conn)
+		copyErrChan <- copyResult{uint64(n), copyErr}
 	}()
 	go func() {
-		_, copyErr := io.Copy(conn, rc)
-		copyErrChan <- copyErr
+		n, copyErr := io.Copy(conn, rc)
+		copyErrChan <- copyResult{uint64(n), copyErr}
 	}()
-	closeErr = <-copyErrChan
+	r1 := <-copyErrChan
+	r2 := <-copyErrChan
+	upload = r1.n
+	download = r2.n
+	if r1.err != nil {
+		closeErr = r1.err
+	} else {
+		closeErr = r2.err
+	}
 }
 
 type sockAddr struct {
