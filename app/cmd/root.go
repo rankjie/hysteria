@@ -45,7 +45,8 @@ var (
 		"CommitHash:\t%s\n"+
 		"Platform:\t%s\n"+
 		"Architecture:\t%s\n"+
-		"Libraries:\tquic-go=%s",
+		"Libraries:\tquic-go=%s\n"+
+		"Modified:\tUsage logging enabled (upload/download/total)",
 		appVersion, appDate, appType, appToolchain, appCommit, appPlatform, appArch, libVersion)
 
 	appAboutLong = fmt.Sprintf("%s\n%s\n%s\n\n%s", appLogo, appDesc, appAuthors, appVersionLong)
