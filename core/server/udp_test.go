@@ -135,8 +135,8 @@ func TestUDPSessionManager(t *testing.T) {
 		close(udpConn2Ch)
 		return nil
 	}).Once()
-	eventLogger.EXPECT().Close(msg1.SessionID, nil).Once()
-	eventLogger.EXPECT().Close(msg2_1.SessionID, nil).Once()
+	eventLogger.EXPECT().Close(msg1.SessionID, nil, mock.Anything, mock.Anything).Once()
+	eventLogger.EXPECT().Close(msg2_1.SessionID, nil, mock.Anything, mock.Anything).Once()
 
 	time.Sleep(3 * time.Second) // Wait for timeout
 	mock.AssertExpectationsForObjects(t, io, eventLogger, udpConn1, udpConn2)
@@ -158,7 +158,7 @@ func TestUDPSessionManager(t *testing.T) {
 	udpConn4.EXPECT().WriteTo(msg4.Data, msg4.Addr).Return(12, nil).Once()
 	udpConn4.EXPECT().ReadFrom(mock.Anything).Return(0, "", errUDPClosed).Once()
 	udpConn4.EXPECT().Close().Return(nil).Once()
-	eventLogger.EXPECT().Close(msg4.SessionID, errUDPClosed).Once()
+	eventLogger.EXPECT().Close(msg4.SessionID, errUDPClosed, mock.Anything, mock.Anything).Once()
 	msgCh <- msg4
 
 	time.Sleep(1 * time.Second)
@@ -177,7 +177,7 @@ func TestUDPSessionManager(t *testing.T) {
 	eventLogger.EXPECT().New(msg5.SessionID, msg5.Addr).Return().Once()
 	io.EXPECT().Hook(msg5.Data, &msg5.Addr).Return(nil).Once()
 	io.EXPECT().UDP(msg5.Addr).Return(nil, errUDPIO).Once()
-	eventLogger.EXPECT().Close(msg5.SessionID, errUDPIO).Once()
+	eventLogger.EXPECT().Close(msg5.SessionID, errUDPIO, mock.Anything, mock.Anything).Once()
 	msgCh <- msg5
 
 	time.Sleep(1 * time.Second)

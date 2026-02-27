@@ -17,9 +17,9 @@ func (_m *mockUDPEventLogger) EXPECT() *mockUDPEventLogger_Expecter {
 	return &mockUDPEventLogger_Expecter{mock: &_m.Mock}
 }
 
-// Close provides a mock function with given fields: sessionID, err
-func (_m *mockUDPEventLogger) Close(sessionID uint32, err error) {
-	_m.Called(sessionID, err)
+// Close provides a mock function with given fields: sessionID, err, upload, download
+func (_m *mockUDPEventLogger) Close(sessionID uint32, err error, upload uint64, download uint64) {
+	_m.Called(sessionID, err, upload, download)
 }
 
 // mockUDPEventLogger_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
@@ -30,13 +30,15 @@ type mockUDPEventLogger_Close_Call struct {
 // Close is a helper method to define mock.On call
 //   - sessionID uint32
 //   - err error
-func (_e *mockUDPEventLogger_Expecter) Close(sessionID interface{}, err interface{}) *mockUDPEventLogger_Close_Call {
-	return &mockUDPEventLogger_Close_Call{Call: _e.mock.On("Close", sessionID, err)}
+//   - upload uint64
+//   - download uint64
+func (_e *mockUDPEventLogger_Expecter) Close(sessionID interface{}, err interface{}, upload interface{}, download interface{}) *mockUDPEventLogger_Close_Call {
+	return &mockUDPEventLogger_Close_Call{Call: _e.mock.On("Close", sessionID, err, upload, download)}
 }
 
-func (_c *mockUDPEventLogger_Close_Call) Run(run func(sessionID uint32, err error)) *mockUDPEventLogger_Close_Call {
+func (_c *mockUDPEventLogger_Close_Call) Run(run func(sessionID uint32, err error, upload uint64, download uint64)) *mockUDPEventLogger_Close_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint32), args[1].(error))
+		run(args[0].(uint32), args[1].(error), args[2].(uint64), args[3].(uint64))
 	})
 	return _c
 }
@@ -46,7 +48,7 @@ func (_c *mockUDPEventLogger_Close_Call) Return() *mockUDPEventLogger_Close_Call
 	return _c
 }
 
-func (_c *mockUDPEventLogger_Close_Call) RunAndReturn(run func(uint32, error)) *mockUDPEventLogger_Close_Call {
+func (_c *mockUDPEventLogger_Close_Call) RunAndReturn(run func(uint32, error, uint64, uint64)) *mockUDPEventLogger_Close_Call {
 	_c.Run(run)
 	return _c
 }
