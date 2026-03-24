@@ -41,7 +41,8 @@ const (
 	// The newly derived CWND gain for STARTUP, 2.
 	derivedHighCWNDGain = 2.0
 
-	debugEnv = "HYSTERIA_BBR_DEBUG"
+	debugEnv        = "HYSTERIA_BBR_DEBUG"
+	pacerLegacyEnv  = "HYSTERIA_BBR_PACER_LEGACY"
 )
 
 // The cycle of gains used during the PROBE_BW stage.
@@ -243,7 +244,8 @@ type bbrSender struct {
 	// Recorded on packet sent. equivalent |unacked_packets_->bytes_in_flight()|
 	bytesInFlight congestion.ByteCount
 
-	debug bool
+	debug       bool
+	pacerLegacy bool // use v2.6.5 pacer formula: bandwidthEstimate * congestionWindowGain
 }
 
 var _ congestion.CongestionControl = &bbrSender{}
@@ -267,6 +269,7 @@ func newBbrSender(
 	initialMaxCongestionWindow congestion.ByteCount,
 ) *bbrSender {
 	debug, _ := strconv.ParseBool(os.Getenv(debugEnv))
+	pacerLegacy, _ := strconv.ParseBool(os.Getenv(pacerLegacyEnv))
 	b := &bbrSender{
 		clock:                        clock,
 		mode:                         bbrModeStartup,
@@ -292,7 +295,8 @@ func newBbrSender(
 		cwndToCalculateMinPacingRate:                     initialCongestionWindow,
 		maxCongestionWindowWithNetworkParametersAdjusted: initialMaxCongestionWindow,
 		maxDatagramSize: initialMaxDatagramSize,
-		debug:           debug,
+		debug:       debug,
+		pacerLegacy: pacerLegacy,
 	}
 	b.pacer = common.NewPacer(b.bandwidthForPacer)
 
@@ -305,6 +309,10 @@ func newBbrSender(
 
 	b.enterStartupMode(b.clock.Now())
 	b.setHighCwndGain(derivedHighCWNDGain)
+
+	if b.debug {
+		b.debugPrint("PacerLegacy: %v", b.pacerLegacy)
+	}
 
 	return b
 }
@@ -554,7 +562,14 @@ func (b *bbrSender) bandwidthEstimate() Bandwidth {
 }
 
 func (b *bbrSender) bandwidthForPacer() congestion.ByteCount {
-	bps := congestion.ByteCount(float64(b.PacingRate()) / float64(BytesPerSecond))
+	var bps congestion.ByteCount
+	if b.pacerLegacy {
+		// v2.6.5 formula: bandwidthEstimate * congestionWindowGain
+		bps = congestion.ByteCount(float64(b.bandwidthEstimate()) * b.congestionWindowGain / float64(BytesPerSecond))
+	} else {
+		// v2.7.0+ formula: PacingRate (includes pacingGain)
+		bps = congestion.ByteCount(float64(b.PacingRate()) / float64(BytesPerSecond))
+	}
 	if bps < minBps {
 		// We need to make sure that the bandwidth value for pacer is never zero,
 		// otherwise it will go into an edge case where HasPacingBudget = false
