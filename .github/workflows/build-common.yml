@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, cronet, linux-cronet]
     env:
       ACTIONS_ALLOW_UNSECURE_COMMANDS: true
     outputs:
@@ -60,7 +60,7 @@ jobs:
   upload:
     name: Upload ${{ matrix.file }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, cronet, linux-cronet]
     strategy:
       fail-fast: false
       matrix:

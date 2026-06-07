@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, cronet, linux-cronet]
     env:
       ACTIONS_ALLOW_UNSECURE_COMMANDS: true
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -18,15 +18,15 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
-      - name: Setup Python # This is for the build script
-        uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -50,7 +50,7 @@ jobs:
           done
 
       - name: Archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hysteria-master-${{ github.sha }}
           path: build

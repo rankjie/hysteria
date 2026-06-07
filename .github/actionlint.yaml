@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - cronet
+    - linux-cronet
+    - macos-cronet
+    - windows-cronet
+
+config-variables: null

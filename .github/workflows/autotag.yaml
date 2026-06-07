@@ -11,7 +11,7 @@ permissions:
 jobs:
   tag:
     name: "Create tags"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, cronet, linux-cronet]
     steps:
       - name: "Extract tagbase"
         id: extract_tagbase

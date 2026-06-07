@@ -39,8 +39,8 @@ const (
 	// The newly derived CWND gain for STARTUP, 2.
 	derivedHighCWNDGain = 2.0
 
-	debugEnv        = "HYSTERIA_BBR_DEBUG"
-	pacerLegacyEnv  = "HYSTERIA_BBR_PACER_LEGACY"
+	debugEnv       = "HYSTERIA_BBR_DEBUG"
+	pacerLegacyEnv = "HYSTERIA_BBR_PACER_LEGACY"
 )
 
 // The cycle of gains used during the PROBE_BW stage.
@@ -369,8 +369,8 @@ func newBbrSender(
 		cwndToCalculateMinPacingRate:                     initialCongestionWindow,
 		maxCongestionWindowWithNetworkParametersAdjusted: initialMaxCongestionWindow,
 		maxDatagramSize: initialMaxDatagramSize,
-		debug:       debug,
-		pacerLegacy: pacerLegacy,
+		debug:           debug,
+		pacerLegacy:     pacerLegacy,
 	}
 	b.pacer = common.NewPacer(b.bandwidthForPacer)
 	b.applyProfile(profile)
