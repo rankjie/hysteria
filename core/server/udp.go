@@ -16,6 +16,7 @@ import (
 
 const (
 	idleCleanupInterval = 1 * time.Second
+	maxSessionACLCache  = 256
 )
 
 type udpIO interface {
@@ -23,6 +24,7 @@ type udpIO interface {
 	SendMessage([]byte, *protocol.UDPMessage) error
 	Hook(data []byte, reqAddr *string) error
 	UDP(reqAddr string) (UDPConn, error)
+	CheckUDP(reqAddr string) error
 }
 
 type udpEventLogger interface {
@@ -45,8 +47,9 @@ type udpSessionEntry struct {
 	connLock sync.Mutex
 	closed   bool
 
-	tx atomic.Uint64
-	rx atomic.Uint64
+	tx       atomic.Uint64
+	rx       atomic.Uint64
+	aclCache map[string]error
 }
 
 func newUDPSessionEntry(
@@ -107,11 +110,16 @@ func (e *udpSessionEntry) Feed(msg *protocol.UDPMessage) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		if e.OverrideAddr == "" {
+			e.aclCache = map[string]error{dfMsg.Addr: nil}
+		}
 	}
 
 	addr := dfMsg.Addr
 	if e.OverrideAddr != "" {
 		addr = e.OverrideAddr
+	} else if err := e.checkAddr(addr); err != nil {
+		return 0, err
 	}
 
 	n, err := e.conn.WriteTo(dfMsg.Data, addr)
@@ -119,6 +127,26 @@ func (e *udpSessionEntry) Feed(msg *protocol.UDPMessage) (int, error) {
 		e.tx.Add(uint64(n))
 	}
 	return n, err
+}
+
+// checkAddr checks outbound policy for the given address.
+// The decision is cached in e.aclCache for future use.
+func (e *udpSessionEntry) checkAddr(addr string) error {
+	if decision, ok := e.aclCache[addr]; ok {
+		return decision
+	}
+	decision := e.IO.CheckUDP(addr)
+	if len(e.aclCache) >= maxSessionACLCache {
+		for k := range e.aclCache {
+			delete(e.aclCache, k)
+			break
+		}
+	}
+	if e.aclCache == nil {
+		e.aclCache = make(map[string]error, 4)
+	}
+	e.aclCache[addr] = decision
+	return decision
 }
 
 // initConn initializes the UDP connection of the session.
