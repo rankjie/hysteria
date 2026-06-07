@@ -31,6 +31,17 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Add Python wrapper for Go tests
+        run: |
+          mkdir -p .ci-bin
+          cat > .ci-bin/python <<EOF
+          #!/bin/bash
+          export LD_LIBRARY_PATH="${Python_ROOT_DIR}/lib:\${LD_LIBRARY_PATH:-}"
+          exec "${Python_ROOT_DIR}/bin/python" "\$@"
+          EOF
+          chmod +x .ci-bin/python
+          echo "$PWD/.ci-bin" >> $GITHUB_PATH
+
       - name: Install gofumpt
         run: go install mvdan.cc/gofumpt@latest
 
@@ -70,6 +81,17 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
+
+      - name: Add Python wrapper for Go tests
+        run: |
+          mkdir -p .ci-bin
+          cat > .ci-bin/python <<EOF
+          #!/bin/bash
+          export LD_LIBRARY_PATH="${Python_ROOT_DIR}/lib:\${LD_LIBRARY_PATH:-}"
+          exec "${Python_ROOT_DIR}/bin/python" "\$@"
+          EOF
+          chmod +x .ci-bin/python
+          echo "$PWD/.ci-bin" >> $GITHUB_PATH
 
       - name: Install gofumpt
         run: go install mvdan.cc/gofumpt@latest
