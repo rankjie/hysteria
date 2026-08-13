@@ -261,6 +261,14 @@ type TrafficLogger interface {
 	UntraceStream(stream HyStream)
 }
 
+// TrafficLoggerConnectionTracker is an optional extension for traffic loggers
+// that need to act on complete authenticated QUIC connections. The returned
+// function removes the connection from the tracker and must be safe to call
+// after disconnect has already been requested.
+type TrafficLoggerConnectionTracker interface {
+	TrackConnection(id string, disconnect func()) (untrack func())
+}
+
 type StreamState int
 
 const (

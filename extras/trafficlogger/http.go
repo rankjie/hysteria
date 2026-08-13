@@ -27,21 +27,21 @@ type TrafficStatsServer interface {
 
 func NewTrafficStatsServer(secret string) TrafficStatsServer {
 	return &trafficStatsServerImpl{
-		StatsMap:  make(map[string]*trafficStatsEntry),
-		KickMap:   make(map[string]struct{}),
-		OnlineMap: make(map[string]int),
-		StreamMap: make(map[server.HyStream]*server.StreamStats),
-		Secret:    secret,
+		StatsMap:      make(map[string]*trafficStatsEntry),
+		OnlineMap:     make(map[string]int),
+		StreamMap:     make(map[server.HyStream]*server.StreamStats),
+		ConnectionMap: make(map[string]map[*trackedConnection]struct{}),
+		Secret:        secret,
 	}
 }
 
 type trafficStatsServerImpl struct {
-	Mutex     sync.RWMutex
-	StatsMap  map[string]*trafficStatsEntry
-	OnlineMap map[string]int
-	StreamMap map[server.HyStream]*server.StreamStats
-	KickMap   map[string]struct{}
-	Secret    string
+	Mutex         sync.RWMutex
+	StatsMap      map[string]*trafficStatsEntry
+	OnlineMap     map[string]int
+	StreamMap     map[server.HyStream]*server.StreamStats
+	ConnectionMap map[string]map[*trackedConnection]struct{}
+	Secret        string
 }
 
 type trafficStatsEntry struct {
@@ -49,15 +49,13 @@ type trafficStatsEntry struct {
 	Rx uint64 `json:"rx"`
 }
 
+type trackedConnection struct {
+	disconnect func()
+}
+
 func (s *trafficStatsServerImpl) LogTraffic(id string, tx, rx uint64) (ok bool) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
-
-	_, ok = s.KickMap[id]
-	if ok {
-		delete(s.KickMap, id)
-		return false
-	}
 
 	entry, ok := s.StatsMap[id]
 	if !ok {
@@ -68,6 +66,28 @@ func (s *trafficStatsServerImpl) LogTraffic(id string, tx, rx uint64) (ok bool) 
 	entry.Rx += rx
 
 	return true
+}
+
+func (s *trafficStatsServerImpl) TrackConnection(id string, disconnect func()) func() {
+	connection := &trackedConnection{disconnect: disconnect}
+	s.Mutex.Lock()
+	connections := s.ConnectionMap[id]
+	if connections == nil {
+		connections = make(map[*trackedConnection]struct{})
+		s.ConnectionMap[id] = connections
+	}
+	connections[connection] = struct{}{}
+	s.Mutex.Unlock()
+
+	return sync.OnceFunc(func() {
+		s.Mutex.Lock()
+		defer s.Mutex.Unlock()
+		connections := s.ConnectionMap[id]
+		delete(connections, connection)
+		if len(connections) == 0 {
+			delete(s.ConnectionMap, id)
+		}
+	})
 }
 
 // LogOnlineState updates the online state to the online map.
@@ -289,11 +309,18 @@ func (s *trafficStatsServerImpl) kick(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	var disconnects []func()
 	s.Mutex.Lock()
 	for _, id := range ids {
-		s.KickMap[id] = struct{}{}
+		for connection := range s.ConnectionMap[id] {
+			disconnects = append(disconnects, connection.disconnect)
+		}
+		delete(s.ConnectionMap, id)
 	}
 	s.Mutex.Unlock()
+	for _, disconnect := range disconnects {
+		disconnect()
+	}
 
 	w.WriteHeader(http.StatusOK)
 }

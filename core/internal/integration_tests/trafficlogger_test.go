@@ -8,11 +8,78 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/apernet/hysteria/core/v2/client"
 	"github.com/apernet/hysteria/core/v2/internal/integration_tests/mocks"
 	"github.com/apernet/hysteria/core/v2/server"
 )
+
+type connectionTrackingTrafficLogger struct {
+	tracked   chan func()
+	untracked chan struct{}
+}
+
+func newConnectionTrackingTrafficLogger() *connectionTrackingTrafficLogger {
+	return &connectionTrackingTrafficLogger{
+		tracked:   make(chan func(), 1),
+		untracked: make(chan struct{}),
+	}
+}
+
+func (l *connectionTrackingTrafficLogger) LogTraffic(string, uint64, uint64) bool {
+	return true
+}
+
+func (l *connectionTrackingTrafficLogger) LogOnlineState(string, bool) {}
+
+func (l *connectionTrackingTrafficLogger) TraceStream(server.HyStream, *server.StreamStats) {}
+
+func (l *connectionTrackingTrafficLogger) UntraceStream(server.HyStream) {}
+
+func (l *connectionTrackingTrafficLogger) TrackConnection(_ string, disconnect func()) func() {
+	l.tracked <- disconnect
+	return sync.OnceFunc(func() {
+		close(l.untracked)
+	})
+}
+
+func TestClientServerTrafficLoggerTracksAuthenticatedConnection(t *testing.T) {
+	udpConn, udpAddr, err := serverConn()
+	require.NoError(t, err)
+	auth := mocks.NewMockAuthenticator(t)
+	auth.EXPECT().Authenticate(mock.Anything, mock.Anything, mock.Anything).Return(true, "nobody")
+	trafficLogger := newConnectionTrackingTrafficLogger()
+	s, err := server.NewServer(&server.Config{
+		TLSConfig:     serverTLSConfig(),
+		Conn:          udpConn,
+		Authenticator: auth,
+		TrafficLogger: trafficLogger,
+	})
+	require.NoError(t, err)
+	defer s.Close()
+	go s.Serve()
+
+	c, _, err := client.NewClient(&client.Config{
+		ServerAddr: udpAddr,
+		TLSConfig:  client.TLSConfig{InsecureSkipVerify: true},
+	})
+	require.NoError(t, err)
+	defer c.Close()
+
+	var disconnect func()
+	select {
+	case disconnect = <-trafficLogger.tracked:
+	case <-time.After(time.Second):
+		t.Fatal("authenticated QUIC connection was not registered with the traffic logger")
+	}
+	disconnect()
+	select {
+	case <-trafficLogger.untracked:
+	case <-time.After(time.Second):
+		t.Fatal("registered QUIC connection did not close and unregister")
+	}
+}
 
 // TestClientServerTrafficLoggerTCP tests that the traffic logger is correctly called for TCP connections,
 // and that the client is disconnected when the traffic logger returns false.

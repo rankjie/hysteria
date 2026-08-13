@@ -126,6 +126,9 @@ func (s *serverImpl) handleClient(conn *quic.Conn) {
 	// If the client is authenticated, we need to log the disconnect event
 	if handler.authenticated {
 		if tl := s.config.TrafficLogger; tl != nil {
+			if handler.untrackConnection != nil {
+				handler.untrackConnection()
+			}
 			tl.LogOnlineState(handler.authID, false)
 		}
 		if el := s.config.EventLogger; el != nil {
@@ -139,10 +142,11 @@ type h3sHandler struct {
 	config *Config
 	conn   *quic.Conn
 
-	authenticated bool
-	authMutex     sync.Mutex
-	authID        string
-	connID        uint32 // a random id for dump streams
+	authenticated     bool
+	authMutex         sync.Mutex
+	authID            string
+	connID            uint32 // a random id for dump streams
+	untrackConnection func()
 
 	udpSM *udpSessionManager // Only set after authentication
 }
@@ -193,6 +197,11 @@ func (h *h3sHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					// Client doesn't know its own bandwidth, use the configured congestion controller.
 					congestion.UseConfigured(h.conn, h.config.CongestionConfig.Type, h.config.CongestionConfig.BBRProfile)
 				}
+			}
+			if tracker, ok := h.config.TrafficLogger.(TrafficLoggerConnectionTracker); ok {
+				h.untrackConnection = tracker.TrackConnection(id, func() {
+					_ = h.conn.CloseWithError(closeErrCodeTrafficLimitReached, "")
+				})
 			}
 			// Auth OK, send response
 			protocol.AuthResponseToHeader(w.Header(), protocol.AuthResponse{
