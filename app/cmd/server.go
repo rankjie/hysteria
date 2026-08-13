@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,14 +23,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/apernet/hysteria/app/v2/internal/mimic"
+
 	"github.com/caddyserver/certmagic"
 	"github.com/libdns/cloudflare"
 	"github.com/libdns/duckdns"
 	"github.com/libdns/gandi"
 	"github.com/libdns/godaddy"
-	"github.com/libdns/namedotcom"
-	"github.com/libdns/vultr"
-	"github.com/mholt/acmez/acme"
+	"github.com/libdns/namecheap"
+	"github.com/libdns/njalla"
+	"github.com/libdns/porkbun"
+	"github.com/libdns/vultr/v2"
+	"github.com/mholt/acmez/v3/acme"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -69,7 +74,9 @@ type serverConfig struct {
 	Obfs                  serverConfigObfs            `mapstructure:"obfs"`
 	TLS                   *serverConfigTLS            `mapstructure:"tls"`
 	ACME                  *serverConfigACME           `mapstructure:"acme"`
+	ECH                   *serverConfigECH            `mapstructure:"ech"`
 	QUIC                  serverConfigQUIC            `mapstructure:"quic"`
+	Mimic                 mimicConfig                 `mapstructure:"mimic"`
 	Congestion            serverConfigCongestion      `mapstructure:"congestion"`
 	Bandwidth             serverConfigBandwidth       `mapstructure:"bandwidth"`
 	IgnoreClientBandwidth bool                        `mapstructure:"ignoreClientBandwidth"`
@@ -118,6 +125,10 @@ type serverConfigTLS struct {
 	ClientCA string `mapstructure:"clientCA"`
 }
 
+type serverConfigECH struct {
+	KeyPath string `mapstructure:"keyPath"`
+}
+
 type serverConfigACME struct {
 	// Common fields
 	Domains    []string `mapstructure:"domains"`
@@ -164,8 +175,9 @@ type serverConfigQUIC struct {
 }
 
 type serverConfigBandwidth struct {
-	Up   string `mapstructure:"up"`
-	Down string `mapstructure:"down"`
+	Up                      string `mapstructure:"up"`
+	Down                    string `mapstructure:"down"`
+	DisableLossCompensation bool   `mapstructure:"disableLossCompensation"`
 }
 
 type serverConfigCongestion struct {
@@ -1024,48 +1036,56 @@ func (c *serverConfig) fillTLSConfig(hyConfig *server.Config) error {
 			if c.ACME.DNS.Config == nil {
 				return configError{Field: "acme.dns.config", Err: errors.New("empty DNS provider config")}
 			}
+			var dnsProvider certmagic.DNSProvider
 			switch strings.ToLower(c.ACME.DNS.Name) {
 			case "cloudflare":
-				cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
-					DNSProvider: &cloudflare.Provider{
-						APIToken: c.ACME.DNS.Config["cloudflare_api_token"],
-					},
+				dnsProvider = &cloudflare.Provider{
+					APIToken: c.ACME.DNS.Config["cloudflare_api_token"],
 				}
 			case "duckdns":
-				cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
-					DNSProvider: &duckdns.Provider{
-						APIToken:       c.ACME.DNS.Config["duckdns_api_token"],
-						OverrideDomain: c.ACME.DNS.Config["duckdns_override_domain"],
-					},
+				dnsProvider = &duckdns.Provider{
+					APIToken:       c.ACME.DNS.Config["duckdns_api_token"],
+					OverrideDomain: c.ACME.DNS.Config["duckdns_override_domain"],
 				}
 			case "gandi":
-				cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
-					DNSProvider: &gandi.Provider{
-						BearerToken: c.ACME.DNS.Config["gandi_api_token"],
-					},
+				dnsProvider = &gandi.Provider{
+					BearerToken: c.ACME.DNS.Config["gandi_api_token"],
 				}
 			case "godaddy":
-				cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
-					DNSProvider: &godaddy.Provider{
-						APIToken: c.ACME.DNS.Config["godaddy_api_token"],
-					},
+				dnsProvider = &godaddy.Provider{
+					APIToken: c.ACME.DNS.Config["godaddy_api_token"],
 				}
-			case "namedotcom":
-				cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
-					DNSProvider: &namedotcom.Provider{
-						Token:  c.ACME.DNS.Config["namedotcom_token"],
-						User:   c.ACME.DNS.Config["namedotcom_user"],
-						Server: c.ACME.DNS.Config["namedotcom_server"],
-					},
+			case "namecheap":
+				dnsProvider = &namecheap.Provider{
+					APIKey:      c.ACME.DNS.Config["namecheap_api_key"],
+					User:        c.ACME.DNS.Config["namecheap_api_user"],
+					APIEndpoint: c.ACME.DNS.Config["namecheap_api_endpoint"],
+					ClientIP:    c.ACME.DNS.Config["namecheap_client_ip"],
+				}
+			case "njalla":
+				dnsProvider = &njalla.Provider{
+					APIToken: c.ACME.DNS.Config["njalla_api_token"],
+				}
+			case "porkbun":
+				dnsProvider = &porkbun.Provider{
+					APIKey:       c.ACME.DNS.Config["porkbun_api_key"],
+					APISecretKey: c.ACME.DNS.Config["porkbun_api_secret_key"],
 				}
 			case "vultr":
-				cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
-					DNSProvider: &vultr.Provider{
-						APIToken: c.ACME.DNS.Config["vultr_api_token"],
-					},
+				dnsProvider = &vultr.Provider{
+					APIToken: c.ACME.DNS.Config["vultr_api_token"],
 				}
+			case "namedotcom":
+				// Dropped: upstream never released a libdns v1 compatible version,
+				// which the current certmagic requires.
+				return configError{Field: "acme.dns.name", Err: errors.New("namedotcom is no longer supported")}
 			default:
 				return configError{Field: "acme.dns.name", Err: errors.New("unsupported DNS provider")}
+			}
+			cmIssuer.DNS01Solver = &certmagic.DNS01Solver{
+				DNSManager: certmagic.DNSManager{
+					DNSProvider: dnsProvider,
+				},
 			}
 		case "":
 			// Legacy compatibility mode
@@ -1094,6 +1114,18 @@ func (c *serverConfig) fillTLSConfig(hyConfig *server.Config) error {
 			return configError{Field: "acme.domains", Err: err}
 		}
 		hyConfig.TLSConfig.GetCertificate = cmCfg.GetCertificate
+	}
+	if c.ECH != nil {
+		if c.ECH.KeyPath == "" {
+			return configError{Field: "ech.keyPath", Err: errors.New("empty ECH key path")}
+		}
+		keys, configList, err := utils.LoadECHKeys(c.ECH.KeyPath)
+		if err != nil {
+			return configError{Field: "ech.keyPath", Err: err}
+		}
+		hyConfig.TLSConfig.ECHKeys = keys
+		logger.Info("ECH enabled, set the following config list on clients (tls.ech)",
+			zap.String("configList", base64.StdEncoding.EncodeToString(configList)))
 	}
 	return nil
 }
@@ -1149,6 +1181,8 @@ func (c *serverConfig) fillQUICConfig(hyConfig *server.Config) error {
 		MaxIdleTimeout:                 c.QUIC.MaxIdleTimeout,
 		MaxIncomingStreams:             c.QUIC.MaxIncomingStreams,
 		DisablePathMTUDiscovery:        c.QUIC.DisablePathMTUDiscovery,
+		// See the client side: Mimic and GSO are mutually exclusive.
+		DisableGSO: c.Mimic.Enabled,
 	}
 	return nil
 }
@@ -1356,6 +1390,7 @@ func (c *serverConfig) fillBandwidthConfig(hyConfig *server.Config) error {
 			return configError{Field: "bandwidth.down", Err: err}
 		}
 	}
+	hyConfig.BandwidthConfig.DisableLossCompensation = c.Bandwidth.DisableLossCompensation
 	return nil
 }
 
@@ -1534,8 +1569,9 @@ func (c *serverConfig) fillMasqHandler(hyConfig *server.Config) error {
 			HTTPSPort: extractPortFromAddr(c.Masquerade.ListenHTTPS),
 			Handler:   &masqHandlerLogWrapper{H: handler, QUIC: false},
 			TLSConfig: &tls.Config{
-				Certificates:   hyConfig.TLSConfig.Certificates,
-				GetCertificate: hyConfig.TLSConfig.GetCertificate,
+				Certificates:             hyConfig.TLSConfig.Certificates,
+				GetCertificate:           hyConfig.TLSConfig.GetCertificate,
+				EncryptedClientHelloKeys: hyConfig.TLSConfig.ECHKeys,
 			},
 			ForceHTTPS: c.Masquerade.ForceHTTPS,
 		}
@@ -1589,6 +1625,22 @@ func runServer(v *viper.Viper) {
 	if err != nil {
 		logger.Fatal("failed to load server config", zap.Error(err))
 	}
+
+	mimicInst, err := mimic.Start(
+		mimic.Config{
+			Enabled:   config.Mimic.Enabled,
+			Interface: config.Mimic.Interface,
+			XDPMode:   config.Mimic.XDPMode,
+			Path:      config.Mimic.Path,
+			ExtraArgs: config.Mimic.ExtraArgs,
+		},
+		mimic.RoleServer, listenUDPAddr(config.Listen), logger,
+		func(err error) { logger.Fatal("mimic stopped", zap.Error(err)) },
+	)
+	if err != nil {
+		logger.Fatal("failed to start mimic", zap.Error(err))
+	}
+	defer mimicInst.Close()
 
 	s, err := server.NewServer(hyConfig)
 	if err != nil {
@@ -1753,4 +1805,17 @@ func extractPortFromAddr(addr string) int {
 		return 0
 	}
 	return port
+}
+
+// listenUDPAddr resolves the listen string for Mimic's filter. A wildcard host
+// stays wildcard: Mimic accepts one for a local filter.
+func listenUDPAddr(listen string) *net.UDPAddr {
+	if listen == "" {
+		listen = defaultListenAddr
+	}
+	addr, err := net.ResolveUDPAddr("udp", listen)
+	if err != nil {
+		return &net.UDPAddr{}
+	}
+	return addr
 }

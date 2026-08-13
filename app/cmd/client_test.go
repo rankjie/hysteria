@@ -20,19 +20,39 @@ func TestClientConfig(t *testing.T) {
 	var config clientConfig
 	err = viper.Unmarshal(&config)
 	assert.NoError(t, err)
+	assertAllFieldsSet(t, config, "client")
 	assert.Equal(t, config, clientConfig{
 		Server: "example.com",
 		Auth:   "weak_ahh_password",
+		Realm: clientConfigRealm{
+			STUNServers:  []string{"stun1.example.com:3478", "stun2.example.com:3478"},
+			STUNTimeout:  6 * time.Second,
+			PunchTimeout: 12 * time.Second,
+			Insecure:     true,
+			IPMode:       "v4",
+			PortMapping: realmPortMappingConfig{
+				Enabled:  true,
+				Timeout:  3 * time.Second,
+				Lifetime: 2 * time.Hour,
+			},
+		},
 		Transport: clientConfigTransport{
 			Type: "udp",
 			UDP: clientConfigTransportUDP{
-				HopInterval: 30 * time.Second,
+				HopInterval:    30 * time.Second,
+				MinHopInterval: 10 * time.Second,
+				MaxHopInterval: 50 * time.Second,
 			},
 		},
 		Obfs: clientConfigObfs{
 			Type: "salamander",
 			Salamander: clientConfigObfsSalamander{
 				Password: "cry_me_a_r1ver",
+			},
+			Gecko: clientConfigObfsGecko{
+				Password:      "g3ck0_in_the_wall",
+				MinPacketSize: 100,
+				MaxPacketSize: 1200,
 			},
 		},
 		TLS: clientConfigTLS{
@@ -42,6 +62,7 @@ func TestClientConfig(t *testing.T) {
 			CA:                "custom_ca.crt",
 			ClientCertificate: "client.crt",
 			ClientKey:         "client.key",
+			ECH:               "AEv+DQBHAAAgACB3rc0Q",
 		},
 		QUIC: clientConfigQUIC{
 			InitStreamReceiveWindow:     1145141,
@@ -51,19 +72,28 @@ func TestClientConfig(t *testing.T) {
 			MaxIdleTimeout:              10 * time.Second,
 			KeepAlivePeriod:             4 * time.Second,
 			DisablePathMTUDiscovery:     true,
+			DisableChromeParrot:         true,
 			Sockopts: clientConfigQUICSockopts{
 				BindInterface:       stringRef("eth0"),
 				FirewallMark:        uint32Ref(1234),
 				FdControlUnixSocket: stringRef("test.sock"),
 			},
 		},
+		Mimic: mimicConfig{
+			Enabled:   true,
+			Interface: "eth0",
+			XDPMode:   "skb",
+			Path:      "/usr/bin/mimic",
+			ExtraArgs: []string{"--padding", "random"},
+		},
 		Congestion: clientConfigCongestion{
 			Type:       "bbr",
 			BBRProfile: "aggressive",
 		},
 		Bandwidth: clientConfigBandwidth{
-			Up:   "200 mbps",
-			Down: "1 gbps",
+			Up:                      "200 mbps",
+			Down:                    "1 gbps",
+			DisableLossCompensation: true,
 		},
 		FastOpen: true,
 		Lazy:     true,
@@ -159,7 +189,7 @@ func TestClientConfigURI(t *testing.T) {
 			},
 		},
 		{
-			uri:   "hysteria2://noauth.com/?insecure=1&obfs=salamander&obfs-password=66ccff&pinSHA256=deadbeef&sni=crap.cc",
+			uri:   "hysteria2://noauth.com/?ech=AAj%2BDQAEAAAAAA%3D%3D&insecure=1&obfs=salamander&obfs-password=66ccff&pinSHA256=deadbeef&sni=crap.cc",
 			uriOK: true,
 			config: &clientConfig{
 				Server: "noauth.com",
@@ -174,6 +204,7 @@ func TestClientConfigURI(t *testing.T) {
 					SNI:       "crap.cc",
 					Insecure:  true,
 					PinSHA256: "deadbeef",
+					ECH:       "AAj+DQAEAAAAAA==",
 				},
 			},
 		},

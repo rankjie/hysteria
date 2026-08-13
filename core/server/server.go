@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	crand "crypto/rand"
 	"crypto/tls"
 	"errors"
 	"math/rand"
@@ -36,10 +37,12 @@ func convertToStdTLSConfig(config *Config) *tls.Config {
 		clientAuth = tls.NoClientCert
 	}
 	return http3.ConfigureTLSConfig(&tls.Config{
-		Certificates:   config.TLSConfig.Certificates,
-		GetCertificate: config.TLSConfig.GetCertificate,
-		ClientCAs:      config.TLSConfig.ClientCAs,
-		ClientAuth:     clientAuth,
+		Certificates:                config.TLSConfig.Certificates,
+		GetCertificate:              config.TLSConfig.GetCertificate,
+		ClientCAs:                   config.TLSConfig.ClientCAs,
+		ClientAuth:                  clientAuth,
+		EncryptedClientHelloKeys:    config.TLSConfig.ECHKeys,
+		GetEncryptedClientHelloKeys: config.TLSConfig.GetECHKeys,
 	})
 }
 
@@ -61,7 +64,19 @@ func NewServer(config *Config) (Server, error) {
 		AssumePeerMaxDatagramFrameSize: protocol.MaxDatagramFrameSize,
 		DisablePathManager:             true,
 	}
-	tr := &quic.Transport{Conn: config.Conn}
+	srk := config.StatelessResetKey
+	if srk == nil {
+		var k quic.StatelessResetKey
+		if _, err := crand.Read(k[:]); err != nil {
+			return nil, err
+		}
+		srk = &k
+	}
+	tr := &quic.Transport{
+		Conn:              config.Conn,
+		DisableGSO:        config.QUICConfig.DisableGSO,
+		StatelessResetKey: srk,
+	}
 	listener, err := tr.Listen(tlsConfig, quicConfig)
 	if err != nil {
 		err = errors.Join(err, tr.Close(), config.Conn.Close())
@@ -173,7 +188,7 @@ func (h *h3sHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					actualTx = h.config.BandwidthConfig.MaxTx
 				}
 				if actualTx > 0 {
-					congestion.UseBrutal(h.conn, actualTx)
+					congestion.UseBrutal(h.conn, actualTx, h.config.BandwidthConfig.DisableLossCompensation)
 				} else {
 					// Client doesn't know its own bandwidth, use the configured congestion controller.
 					congestion.UseConfigured(h.conn, h.config.CongestionConfig.Type, h.config.CongestionConfig.BBRProfile)
