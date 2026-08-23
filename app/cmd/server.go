@@ -175,6 +175,7 @@ type serverConfigQUIC struct {
 	MaxIdleTimeout              time.Duration `mapstructure:"maxIdleTimeout"`
 	MaxIncomingStreams          int64         `mapstructure:"maxIncomingStreams"`
 	DisablePathMTUDiscovery     bool          `mapstructure:"disablePathMTUDiscovery"`
+	DisableStatelessReset       bool          `mapstructure:"disableStatelessReset"`
 }
 
 type serverConfigBandwidth struct {
@@ -1209,6 +1210,7 @@ func (c *serverConfig) fillQUICConfig(hyConfig *server.Config) error {
 		MaxIdleTimeout:                 c.QUIC.MaxIdleTimeout,
 		MaxIncomingStreams:             c.QUIC.MaxIncomingStreams,
 		DisablePathMTUDiscovery:        c.QUIC.DisablePathMTUDiscovery,
+		DisableStatelessReset:          c.QUIC.DisableStatelessReset,
 		// See the client side: Mimic and GSO are mutually exclusive.
 		DisableGSO: c.Mimic.Enabled,
 	}
