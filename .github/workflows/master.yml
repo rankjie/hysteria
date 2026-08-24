@@ -64,6 +64,14 @@ jobs:
           R2_BUCKET: ${{ env.R2_BUCKET }}
           R2_ACCOUNT_ID: ${{ env.R2_ACCOUNT_ID }}
         run: |
-          aws s3 sync build s3://${R2_BUCKET}/master/${GITHUB_SHA}/ \
+          set -euo pipefail
+
+          aws s3 sync build s3://${R2_BUCKET}/hysteria/${GITHUB_SHA}/ \
             --endpoint-url https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com \
             --delete
+
+          if [ "$(git ls-remote origin refs/heads/master | cut -f1)" = "${GITHUB_SHA}" ]; then
+            aws s3 sync build s3://${R2_BUCKET}/hysteria/latest/ \
+              --endpoint-url https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com \
+              --delete
+          fi
