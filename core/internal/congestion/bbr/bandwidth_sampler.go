@@ -10,8 +10,8 @@ import (
 
 const (
 	infRTT                             = time.Duration(math.MaxInt64)
-	defaultConnectionStateMapQueueSize = 256
-	defaultCandidatesBufferSize        = 256
+	defaultConnectionStateMapQueueSize = initialCongestionWindowPackets
+	defaultCandidatesBufferSize        = 16
 )
 
 type roundTripCount uint64

@@ -11,12 +11,10 @@ import (
 
 	"github.com/apernet/hysteria/core/v2/internal/frag"
 	"github.com/apernet/hysteria/core/v2/internal/protocol"
-	"github.com/apernet/hysteria/core/v2/internal/utils"
 )
 
 const (
-	idleCleanupInterval = 1 * time.Second
-	maxSessionACLCache  = 256
+	maxSessionACLCache = 256
 )
 
 type udpIO interface {
@@ -37,15 +35,16 @@ type udpSessionEntry struct {
 	OverrideAddr string // Ignore the address in the UDP message, always use this if not empty
 	OriginalAddr string // The original address in the UDP message
 	D            *frag.Defragger
-	Last         *utils.AtomicTime
 	IO           udpIO
 
 	DialFunc func(addr string, firstMsgData []byte) (conn UDPConn, actualAddr string, err error)
 	ExitFunc func(err error, upload, download uint64)
 
-	conn     UDPConn
-	connLock sync.Mutex
-	closed   bool
+	conn        UDPConn
+	connLock    sync.Mutex
+	closed      bool
+	idleTimeout time.Duration
+	idleTimer   *time.Timer
 
 	tx       atomic.Uint64
 	rx       atomic.Uint64
@@ -56,18 +55,32 @@ func newUDPSessionEntry(
 	id uint32, io udpIO,
 	dialFunc func(string, []byte) (UDPConn, string, error),
 	exitFunc func(err error, upload, download uint64),
+	idleTimeout time.Duration,
 ) (e *udpSessionEntry) {
 	e = &udpSessionEntry{
-		ID:   id,
-		D:    &frag.Defragger{},
-		Last: utils.NewAtomicTime(time.Now()),
-		IO:   io,
+		ID:          id,
+		D:           &frag.Defragger{},
+		IO:          io,
+		idleTimeout: idleTimeout,
 
 		DialFunc: dialFunc,
 		ExitFunc: exitFunc,
 	}
+	e.idleTimer = time.AfterFunc(idleTimeout, func() {
+		e.CloseWithErr(nil)
+	})
 
 	return e
+}
+
+func (e *udpSessionEntry) touch() bool {
+	e.connLock.Lock()
+	defer e.connLock.Unlock()
+	if e.closed {
+		return false
+	}
+	e.idleTimer.Reset(e.idleTimeout)
+	return true
 }
 
 // CloseWithErr closes the session and calls ExitFunc with the given error.
@@ -83,6 +96,7 @@ func (e *udpSessionEntry) CloseWithErr(err error) {
 	}
 
 	e.closed = true
+	e.idleTimer.Stop()
 	if e.conn != nil {
 		_ = e.conn.Close()
 	}
@@ -99,7 +113,9 @@ func (e *udpSessionEntry) CloseWithErr(err error) {
 // written is returned.
 // Otherwise, 0 and nil are returned.
 func (e *udpSessionEntry) Feed(msg *protocol.UDPMessage) (int, error) {
-	e.Last.Set(time.Now())
+	if !e.touch() {
+		return 0, errors.New("session is closed")
+	}
 	dfMsg := e.D.Feed(msg)
 	if dfMsg == nil {
 		return 0, nil
@@ -199,7 +215,9 @@ func (e *udpSessionEntry) receiveLoop() {
 		if udpN > 0 {
 			e.rx.Add(uint64(udpN))
 		}
-		e.Last.Set(time.Now())
+		if !e.touch() {
+			return
+		}
 
 		if e.OriginalAddr != "" {
 			// Use the original address in the opposite direction,
@@ -272,10 +290,7 @@ func newUDPSessionManager(io udpIO, eventLogger udpEventLogger, idleTimeout time
 // Run runs the session manager main loop.
 // Exit and returns error when the underlying io returns error (e.g. closed).
 func (m *udpSessionManager) Run() error {
-	stopCh := make(chan struct{})
-	go m.idleCleanupLoop(stopCh)
-	defer close(stopCh)
-	defer m.cleanup(false)
+	defer m.cleanup()
 
 	for {
 		msg, err := m.io.ReceiveMessage()
@@ -286,32 +301,16 @@ func (m *udpSessionManager) Run() error {
 	}
 }
 
-func (m *udpSessionManager) idleCleanupLoop(stopCh <-chan struct{}) {
-	ticker := time.NewTicker(idleCleanupInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			m.cleanup(true)
-		case <-stopCh:
-			return
-		}
-	}
-}
-
-func (m *udpSessionManager) cleanup(idleOnly bool) {
+func (m *udpSessionManager) cleanup() {
 	// We use RLock here as we are only scanning the map, not deleting from it.
 	m.mutex.RLock()
-	timeoutEntry := make([]*udpSessionEntry, 0, len(m.m))
-	now := time.Now()
+	entries := make([]*udpSessionEntry, 0, len(m.m))
 	for _, entry := range m.m {
-		if !idleOnly || now.Sub(entry.Last.Get()) > m.idleTimeout {
-			timeoutEntry = append(timeoutEntry, entry)
-		}
+		entries = append(entries, entry)
 	}
 	m.mutex.RUnlock()
 
-	for _, entry := range timeoutEntry {
+	for _, entry := range entries {
 		// This eventually calls entry.ExitFunc,
 		// where the m.mutex will be locked again to remove the entry from the map.
 		entry.CloseWithErr(nil)
@@ -348,7 +347,7 @@ func (m *udpSessionManager) feed(msg *protocol.UDPMessage) {
 			m.mutex.Unlock()
 		}
 
-		entry = newUDPSessionEntry(msg.SessionID, m.io, dialFunc, exitFunc)
+		entry = newUDPSessionEntry(msg.SessionID, m.io, dialFunc, exitFunc, m.idleTimeout)
 
 		// Insert the session into the map
 		m.mutex.Lock()

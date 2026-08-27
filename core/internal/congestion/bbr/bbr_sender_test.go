@@ -30,6 +30,13 @@ func TestSetMaxDatagramSizeRescalesPacketSizedWindows(t *testing.T) {
 	require.Equal(t, initialCongestionWindowPackets*newMaxDatagramSize, b.congestionWindow)
 }
 
+func TestBandwidthSamplerStartsWithBoundedBuffers(t *testing.T) {
+	sampler := newBandwidthSampler(roundTripCount(bandwidthWindowSize))
+
+	require.Len(t, sampler.connectionStateMap.entries.ring, initialCongestionWindowPackets)
+	require.Len(t, sampler.a0Candidates.ring, defaultCandidatesBufferSize)
+}
+
 func TestSetMaxDatagramSizeClampsCongestionWindow(t *testing.T) {
 	const oldMaxDatagramSize = congestion.ByteCount(1000)
 	const newMaxDatagramSize = congestion.ByteCount(1400)

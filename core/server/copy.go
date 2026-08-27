@@ -9,9 +9,11 @@ import (
 
 var errDisconnect = errors.New("traffic logger requested disconnect")
 
+const copyBufferSize = 16 * 1024
+
 var copyBufPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 32*1024)
+		b := make([]byte, copyBufferSize)
 		return &b
 	},
 }
