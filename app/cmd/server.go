@@ -190,11 +190,17 @@ type serverConfigAuthHTTP struct {
 	Insecure bool   `mapstructure:"insecure"`
 }
 
+type serverConfigAuthFile struct {
+	Path            string        `mapstructure:"path"`
+	RefreshInterval time.Duration `mapstructure:"refreshInterval"`
+}
+
 type serverConfigAuth struct {
 	Type     string               `mapstructure:"type"`
 	Password string               `mapstructure:"password"`
 	UserPass map[string]string    `mapstructure:"userpass"`
 	HTTP     serverConfigAuthHTTP `mapstructure:"http"`
+	File     serverConfigAuthFile `mapstructure:"file"`
 	Command  string               `mapstructure:"command"`
 }
 
@@ -1448,6 +1454,16 @@ func (c *serverConfig) fillAuthenticator(hyConfig *server.Config) error {
 		}
 		hyConfig.Authenticator = auth.NewHTTPAuthenticator(c.Auth.HTTP.URL, c.Auth.HTTP.Insecure)
 		return nil
+	case "file":
+		if c.Auth.File.Path == "" {
+			return configError{Field: "auth.file.path", Err: errors.New("empty auth file path")}
+		}
+		fileAuthenticator, err := auth.NewFileAuthenticator(c.Auth.File.Path, c.Auth.File.RefreshInterval)
+		if err != nil {
+			return configError{Field: "auth.file", Err: err}
+		}
+		hyConfig.Authenticator = fileAuthenticator
+		return nil
 	case "command", "cmd":
 		if c.Auth.Command == "" {
 			return configError{Field: "auth.command", Err: errors.New("empty auth command")}
@@ -1467,6 +1483,9 @@ func (c *serverConfig) fillEventLogger(hyConfig *server.Config) error {
 func (c *serverConfig) fillTrafficLogger(hyConfig *server.Config) error {
 	if c.TrafficStats.Listen != "" {
 		tss := trafficlogger.NewTrafficStatsServer(c.TrafficStats.Secret)
+		if reloader, ok := hyConfig.Authenticator.(trafficlogger.AuthReloader); ok {
+			tss.SetAuthReloader(reloader)
+		}
 		hyConfig.TrafficLogger = tss
 		go runTrafficStatsServer(c.TrafficStats.Listen, tss)
 	}

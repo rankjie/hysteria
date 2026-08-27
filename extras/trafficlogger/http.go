@@ -23,6 +23,11 @@ const (
 type TrafficStatsServer interface {
 	server.TrafficLogger
 	http.Handler
+	SetAuthReloader(AuthReloader)
+}
+
+type AuthReloader interface {
+	Reload() (int, error)
 }
 
 func NewTrafficStatsServer(secret string) TrafficStatsServer {
@@ -42,6 +47,7 @@ type trafficStatsServerImpl struct {
 	StreamMap     map[server.HyStream]*server.StreamStats
 	ConnectionMap map[string]map[*trackedConnection]struct{}
 	Secret        string
+	AuthReloader  AuthReloader
 }
 
 type trafficStatsEntry struct {
@@ -51,6 +57,12 @@ type trafficStatsEntry struct {
 
 type trackedConnection struct {
 	disconnect func()
+}
+
+func (s *trafficStatsServerImpl) SetAuthReloader(reloader AuthReloader) {
+	s.Mutex.Lock()
+	s.AuthReloader = reloader
+	s.Mutex.Unlock()
 }
 
 func (s *trafficStatsServerImpl) LogTraffic(id string, tx, rx uint64) (ok bool) {
@@ -144,7 +156,30 @@ func (s *trafficStatsServerImpl) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		s.getDumpStreams(w, r)
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == "/auth/reload" {
+		s.reloadAuth(w)
+		return
+	}
 	http.NotFound(w, r)
+}
+
+func (s *trafficStatsServerImpl) reloadAuth(w http.ResponseWriter) {
+	s.Mutex.RLock()
+	reloader := s.AuthReloader
+	s.Mutex.RUnlock()
+	if reloader == nil {
+		http.Error(w, "file authentication is not configured", http.StatusNotFound)
+		return
+	}
+	count, err := reloader.Reload()
+	if err != nil {
+		http.Error(w, "failed to reload authentication snapshot", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(struct {
+		Users int `json:"users"`
+	}{Users: count})
 }
 
 func (s *trafficStatsServerImpl) getTraffic(w http.ResponseWriter, r *http.Request) {

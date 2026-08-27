@@ -1,6 +1,8 @@
 package trafficlogger
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,12 @@ import (
 
 	"github.com/apernet/hysteria/core/v2/server"
 )
+
+type authReloaderFunc func() (int, error)
+
+func (f authReloaderFunc) Reload() (int, error) {
+	return f()
+}
 
 func newConnectionTrackingStats(t *testing.T) (TrafficStatsServer, server.TrafficLoggerConnectionTracker) {
 	t.Helper()
@@ -55,6 +63,60 @@ func TestKickDisconnectsAllConcurrentConnectionsForAuthID(t *testing.T) {
 	}
 	if got := sharedDisconnects.Load(); got != 2 {
 		t.Fatalf("repeated kick called disconnect callbacks %d times, want 2", got)
+	}
+}
+
+func TestAuthReloadEndpointIsAuthenticatedAndReturnsUserCount(t *testing.T) {
+	stats := NewTrafficStatsServer("secret")
+	var calls atomic.Int32
+	stats.SetAuthReloader(authReloaderFunc(func() (int, error) {
+		calls.Add(1)
+		return 22052, nil
+	}))
+
+	unauthorizedRequest := httptest.NewRequest(http.MethodPost, "/auth/reload", nil)
+	unauthorizedRecorder := httptest.NewRecorder()
+	stats.ServeHTTP(unauthorizedRecorder, unauthorizedRequest)
+	if unauthorizedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedRecorder.Code, http.StatusUnauthorized)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("unauthorized request reloaded authentication")
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/reload", nil)
+	request.Header.Set("Authorization", "secret")
+	recorder := httptest.NewRecorder()
+	stats.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("reload status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Users int `json:"users"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Users != 22052 {
+		t.Fatalf("reload users = %d, want 22052", response.Users)
+	}
+}
+
+func TestAuthReloadEndpointKeepsReloadFailureOpaque(t *testing.T) {
+	stats := NewTrafficStatsServer("")
+	stats.SetAuthReloader(authReloaderFunc(func() (int, error) {
+		return 0, errors.New("sensitive path detail")
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/auth/reload", nil)
+	recorder := httptest.NewRecorder()
+
+	stats.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("reload status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	if strings.Contains(recorder.Body.String(), "sensitive path detail") {
+		t.Fatal("reload response exposed the underlying error")
 	}
 }
 

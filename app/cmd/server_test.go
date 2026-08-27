@@ -127,6 +127,10 @@ func TestServerConfig(t *testing.T) {
 				URL:      "http://127.0.0.1:5000/auth",
 				Insecure: true,
 			},
+			File: serverConfigAuthFile{
+				Path:            "/etc/hy2_auth.json",
+				RefreshInterval: 250 * time.Millisecond,
+			},
 			Command: "/etc/some_command",
 		},
 		Resolver: serverConfigResolver{
