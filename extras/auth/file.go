@@ -20,16 +20,22 @@ import (
 
 const defaultFileAuthRefreshInterval = time.Second
 
-var _ server.Authenticator = &FileAuthenticator{}
+var _ server.SessionAuthenticator = &FileAuthenticator{}
 
 type fileAuthSnapshot struct {
 	users map[string]string
+}
+
+type fileAuthSession struct {
+	revoke func()
 }
 
 type FileAuthenticator struct {
 	path            string
 	refreshInterval time.Duration
 	snapshot        atomic.Pointer[fileAuthSnapshot]
+	sessionMu       sync.Mutex
+	sessions        map[string]map[*fileAuthSession]struct{}
 	reloadMu        sync.Mutex
 	lastFileInfo    os.FileInfo
 	lastReloadError string
@@ -51,6 +57,7 @@ func NewFileAuthenticator(path string, refreshInterval time.Duration) (*FileAuth
 	}
 	a := &FileAuthenticator{
 		path:            path,
+		sessions:        make(map[string]map[*fileAuthSession]struct{}),
 		refreshInterval: refreshInterval,
 		lastFileInfo:    info,
 		stop:            make(chan struct{}),
@@ -156,13 +163,32 @@ func (a *FileAuthenticator) reloadLocked() (int, error) {
 	}
 	a.lastFileInfo = loadedInfo
 	a.lastReloadError = ""
+	// Registration and snapshot replacement share this lock so a connection
+	// cannot authenticate with a retired password and miss its revocation.
+	a.sessionMu.Lock()
+	previous := a.snapshot.Load()
+	var revoked []*fileAuthSession
+	for id, sessions := range a.sessions {
+		if password, exists := snapshot.users[id]; exists && password == previous.users[id] {
+			continue
+		}
+		for session := range sessions {
+			revoked = append(revoked, session)
+		}
+		delete(a.sessions, id)
+	}
 	a.snapshot.Store(snapshot)
+	a.sessionMu.Unlock()
+	// Closing a connection can trigger unregister; never call back under sessionMu.
+	for _, session := range revoked {
+		session.revoke()
+	}
 	log.Printf("file auth: reloaded %d users from %s", len(snapshot.users), a.path)
 	return len(snapshot.users), nil
 }
 
 // Reload replaces the active snapshot only after the whole file has been
-// validated. Authentication remains lock-free while a reload is in progress.
+// validated. Changed or removed users have all registered connections revoked.
 func (a *FileAuthenticator) Reload() (int, error) {
 	a.reloadMu.Lock()
 	defer a.reloadMu.Unlock()
@@ -205,6 +231,34 @@ func (a *FileAuthenticator) Authenticate(_ net.Addr, credential string, _ uint64
 		return false, ""
 	}
 	return true, id
+}
+
+// AuthenticateAndRegister includes connections that have not yet reached the
+// traffic logger, closing the authentication-to-/kick registration window.
+func (a *FileAuthenticator) AuthenticateAndRegister(addr net.Addr, credential string, tx uint64, revoke func()) (bool, string, func()) {
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	ok, id := a.Authenticate(addr, credential, tx)
+	if !ok {
+		return false, "", nil
+	}
+	session := &fileAuthSession{revoke: revoke}
+	sessions := a.sessions[id]
+	if sessions == nil {
+		sessions = make(map[*fileAuthSession]struct{})
+		a.sessions[id] = sessions
+	}
+	sessions[session] = struct{}{}
+	return true, id, func() {
+		a.sessionMu.Lock()
+		defer a.sessionMu.Unlock()
+		if current := a.sessions[id]; current != nil {
+			delete(current, session)
+			if len(current) == 0 {
+				delete(a.sessions, id)
+			}
+		}
+	}
 }
 
 func (a *FileAuthenticator) Close() {

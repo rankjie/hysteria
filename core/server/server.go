@@ -128,6 +128,13 @@ func (s *serverImpl) handleClient(conn *quic.Conn) {
 		StreamDispatcher: handler.ProxyStreamHijacker,
 	}
 	err := h3s.ServeQUICConn(conn)
+	// ServeQUICConn can return while an authentication handler is finishing.
+	handler.authMutex.Lock()
+	defer handler.authMutex.Unlock()
+	handler.closed = true
+	if handler.unregisterAuth != nil {
+		handler.unregisterAuth()
+	}
 	// If the client is authenticated, we need to log the disconnect event
 	if handler.authenticated {
 		if tl := s.config.TrafficLogger; tl != nil {
@@ -148,10 +155,12 @@ type h3sHandler struct {
 	conn   *quic.Conn
 
 	authenticated     bool
+	closed            bool
 	authMutex         sync.Mutex
 	authID            string
 	connID            uint32 // a random id for dump streams
 	untrackConnection func()
+	unregisterAuth    func()
 
 	udpSM *udpSessionManager // Only set after authentication
 }
@@ -168,6 +177,9 @@ func (h *h3sHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && r.Host == protocol.URLHost && r.URL.Path == protocol.URLPath {
 		h.authMutex.Lock()
 		defer h.authMutex.Unlock()
+		if h.closed {
+			return
+		}
 		if h.authenticated {
 			// Already authenticated
 			protocol.AuthResponseToHeader(w.Header(), protocol.AuthResponse{
@@ -180,7 +192,15 @@ func (h *h3sHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		authReq := protocol.AuthRequestFromHeader(r.Header)
 		actualTx := authReq.Rx
-		ok, id := h.config.Authenticator.Authenticate(h.conn.RemoteAddr(), authReq.Auth, actualTx)
+		var ok bool
+		var id string
+		if authenticator, supportsSessions := h.config.Authenticator.(SessionAuthenticator); supportsSessions {
+			ok, id, h.unregisterAuth = authenticator.AuthenticateAndRegister(h.conn.RemoteAddr(), authReq.Auth, actualTx, func() {
+				_ = h.conn.CloseWithError(closeErrCodeTrafficLimitReached, "credentials revoked")
+			})
+		} else {
+			ok, id = h.config.Authenticator.Authenticate(h.conn.RemoteAddr(), authReq.Auth, actualTx)
+		}
 		if ok {
 			// Set authenticated flag
 			h.authenticated = true
@@ -247,7 +267,10 @@ func (h *h3sHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *h3sHandler) ProxyStreamHijacker(ft http3.FrameType, stream *quic.Stream, err error) (bool, error) {
-	if err != nil || !h.authenticated {
+	h.authMutex.Lock()
+	authenticated := h.authenticated
+	h.authMutex.Unlock()
+	if err != nil || !authenticated {
 		return false, nil
 	}
 

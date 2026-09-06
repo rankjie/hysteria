@@ -19,6 +19,7 @@ const (
 ░▀░▀░░▀░░▀▀▀░░▀░░▀▀▀░▀░▀░▀▀▀░▀░▀░░░▀▀▀
 `
 	appDesc    = "a powerful, lightning fast and censorship resistant proxy"
+	appFork    = "PandaFan modified 2026-09-06"
 	appAuthors = "Aperture Internet Laboratory <https://github.com/apernet>"
 
 	appLogLevelEnv           = "HYSTERIA_LOG_LEVEL"
@@ -46,8 +47,8 @@ var (
 		"Platform:\t%s\n"+
 		"Architecture:\t%s\n"+
 		"Libraries:\tquic-go=%s\n"+
-		"Modified:\tUsage logging enabled (upload/download/total)",
-		appVersion, appDate, appType, appToolchain, appCommit, appPlatform, appArch, libVersion)
+		"Modified:\t%s; usage logging enabled (upload/download/total)",
+		appVersion, appDate, appType, appToolchain, appCommit, appPlatform, appArch, libVersion, appFork)
 
 	appAboutLong = fmt.Sprintf("%s\n%s\n%s\n\n%s", appLogo, appDesc, appAuthors, appVersionLong)
 )
@@ -66,10 +67,11 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "hysteria",
-	Short: appDesc,
-	Long:  appAboutLong,
-	Run:   runClientCmd, // Default to client mode
+	Use:     "hysteria",
+	Version: appVersion + " (" + appFork + ")",
+	Short:   appDesc,
+	Long:    appAboutLong,
+	Run:     runClientCmd, // Default to client mode
 }
 
 var logLevelMap = map[string]zapcore.Level{

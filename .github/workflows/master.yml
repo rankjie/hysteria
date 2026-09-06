@@ -43,6 +43,13 @@ jobs:
           export HY_APP_PLATFORMS=$(sed 's/\r$//' platforms.txt | awk '!/^#/ && !/^$/' | paste -sd ",")
           uv run python hyperbole.py build -r
 
+      - name: Verify fork identity
+        run: |
+          set -euo pipefail
+          build/hysteria-linux-amd64 version | tee /tmp/hysteria-version.txt
+          grep -F "PandaFan modified 2026-09-06" /tmp/hysteria-version.txt
+          build/hysteria-linux-amd64 -v | grep -F "PandaFan modified 2026-09-06"
+
       - name: Generate hashes
         run: |
           for file in build/*; do

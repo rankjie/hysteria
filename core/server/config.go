@@ -227,6 +227,15 @@ type Authenticator interface {
 	Authenticate(addr net.Addr, auth string, tx uint64) (ok bool, id string)
 }
 
+// SessionAuthenticator atomically authenticates and registers a connection for
+// credential revocation. A successful call returns an idempotent unregister
+// function. revoke may run before this method returns and must not wait for the
+// HTTP handler to finish.
+type SessionAuthenticator interface {
+	Authenticator
+	AuthenticateAndRegister(addr net.Addr, auth string, tx uint64, revoke func()) (ok bool, id string, unregister func())
+}
+
 // EventLogger is an interface that provides logging logic.
 type EventLogger interface {
 	Connect(addr net.Addr, id string, tx uint64)
