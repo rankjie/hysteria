@@ -20,10 +20,16 @@ jobs:
         id: get_version
         run: echo "version=$(git describe --tags --always --match 'app/v*' | sed -n 's|app/\([^/-]*\)\(-.*\)\{0,1\}|\1|p')" >> $GITHUB_OUTPUT
 
+      - name: Prepare persistent Go cache
+        run: |
+          env -i PATH="$PATH" python3 "$HOME/.local/lib/pandafan-ci/retention.py" prepare-go \
+            --workspace "$GITHUB_WORKSPACE" --slot "hysteria-release" --env-file "$GITHUB_ENV"
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version: "1.26"
+          cache: false
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
@@ -53,3 +59,12 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: build/*
+
+      - name: Retain successful build and prune obsolete Go cache
+        run: |
+          set -euo pipefail
+          env -i PATH="$PATH" python3 "$HOME/.local/lib/pandafan-ci/retention.py" publish \
+            --root "$HOME/.local/share/pandafan-ci/artifacts" --slot "hysteria-release" build/*
+          env -i PATH="$PATH" python3 "$HOME/.local/lib/pandafan-ci/retention.py" go \
+            --cache "$GOCACHE" --modules "$GOMODCACHE" --started "$CI_GO_STARTED" --slot "$CI_GO_SLOT" \
+            --source "$GITHUB_WORKSPACE" --source "$RUNNER_TEMP" --apply

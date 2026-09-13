@@ -80,10 +80,16 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7
 
+      - name: Prepare persistent Go cache
+        run: |
+          env -i PATH="$PATH" python3 "$HOME/.local/lib/pandafan-ci/retention.py" prepare-go \
+            --workspace "$GITHUB_WORKSPACE" --slot "hysteria-test" --env-file "$GITHUB_ENV"
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version: "1.26"
+          cache: false
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -133,3 +139,10 @@ jobs:
       - name: Test app
         working-directory: app
         run: go test -v -count=1 ./...
+
+      - name: Retain successful build and prune obsolete Go cache
+        run: |
+          set -euo pipefail
+          env -i PATH="$PATH" python3 "$HOME/.local/lib/pandafan-ci/retention.py" go \
+            --cache "$GOCACHE" --modules "$GOMODCACHE" --started "$CI_GO_STARTED" --slot "$CI_GO_SLOT" \
+            --source "$GITHUB_WORKSPACE" --source "$RUNNER_TEMP" --apply
