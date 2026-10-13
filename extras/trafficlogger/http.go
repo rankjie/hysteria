@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -23,7 +24,29 @@ const (
 type TrafficStatsServer interface {
 	server.TrafficLogger
 	http.Handler
+	AccessRecorder
 	SetAuthReloader(AuthReloader)
+}
+
+// AccessRecorder keeps per-connection events for GET /access, so consumers do
+// not have to parse debug logs to learn who connected to what.
+type AccessRecorder interface {
+	RecordConnect(addr net.Addr, id string)
+	RecordTCP(addr net.Addr, id, reqAddr string, upload, download uint64)
+}
+
+// accessRecordLimit bounds memory while no consumer drains /access. Records
+// past the limit are counted in "dropped" instead of kept.
+const accessRecordLimit = 100000
+
+type AccessRecord struct {
+	Time     int64  `json:"time"` // Unix milliseconds
+	Kind     string `json:"kind"` // "connect" or "tcp"
+	Addr     string `json:"addr"`
+	ID       string `json:"id"`
+	ReqAddr  string `json:"reqAddr,omitempty"`
+	Upload   uint64 `json:"upload"`
+	Download uint64 `json:"download"`
 }
 
 type AuthReloader interface {
@@ -48,6 +71,10 @@ type trafficStatsServerImpl struct {
 	ConnectionMap map[string]map[*trackedConnection]struct{}
 	Secret        string
 	AuthReloader  AuthReloader
+
+	accessMutex   sync.Mutex
+	accessRecords []AccessRecord
+	accessDropped uint64
 }
 
 type trafficStatsEntry struct {
@@ -131,6 +158,25 @@ func (s *trafficStatsServerImpl) UntraceStream(stream server.HyStream) {
 	delete(s.StreamMap, stream)
 }
 
+func (s *trafficStatsServerImpl) RecordConnect(addr net.Addr, id string) {
+	s.appendAccess(AccessRecord{Kind: "connect", Addr: addr.String(), ID: id})
+}
+
+func (s *trafficStatsServerImpl) RecordTCP(addr net.Addr, id, reqAddr string, upload, download uint64) {
+	s.appendAccess(AccessRecord{Kind: "tcp", Addr: addr.String(), ID: id, ReqAddr: reqAddr, Upload: upload, Download: download})
+}
+
+func (s *trafficStatsServerImpl) appendAccess(record AccessRecord) {
+	record.Time = time.Now().UnixMilli()
+	s.accessMutex.Lock()
+	defer s.accessMutex.Unlock()
+	if len(s.accessRecords) >= accessRecordLimit {
+		s.accessDropped++
+		return
+	}
+	s.accessRecords = append(s.accessRecords, record)
+}
+
 func (s *trafficStatsServerImpl) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.Secret != "" && r.Header.Get("Authorization") != s.Secret {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -150,6 +196,10 @@ func (s *trafficStatsServerImpl) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/online" {
 		s.getOnline(w, r)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/access" {
+		s.getAccess(w, r)
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/dump/streams" {
@@ -202,6 +252,30 @@ func (s *trafficStatsServerImpl) getTraffic(w http.ResponseWriter, r *http.Reque
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_, _ = w.Write(jb)
+}
+
+func (s *trafficStatsServerImpl) getAccess(w http.ResponseWriter, r *http.Request) {
+	bClear, _ := strconv.ParseBool(r.URL.Query().Get("clear"))
+	s.accessMutex.Lock()
+	records, dropped := s.accessRecords, s.accessDropped
+	if bClear {
+		s.accessRecords, s.accessDropped = nil, 0
+	} else {
+		records = slices.Clone(records)
+	}
+	s.accessMutex.Unlock()
+	if records == nil {
+		records = []AccessRecord{}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	err := json.NewEncoder(w).Encode(struct {
+		Records []AccessRecord `json:"records"`
+		Dropped uint64         `json:"dropped"`
+	}{records, dropped})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *trafficStatsServerImpl) getOnline(w http.ResponseWriter, r *http.Request) {

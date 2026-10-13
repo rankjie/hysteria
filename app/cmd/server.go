@@ -1517,6 +1517,9 @@ func (c *serverConfig) fillTrafficLogger(hyConfig *server.Config) error {
 			tss.SetAuthReloader(reloader)
 		}
 		hyConfig.TrafficLogger = tss
+		if l, ok := hyConfig.EventLogger.(*serverLogger); ok {
+			l.access = tss
+		}
 		go runTrafficStatsServer(c.TrafficStats.Listen, tss)
 	}
 	return nil
@@ -1818,9 +1821,15 @@ func geoDownloadErrFunc(err error) {
 	}
 }
 
-type serverLogger struct{}
+type serverLogger struct {
+	// access receives connection events for the trafficStats /access API.
+	access trafficlogger.AccessRecorder
+}
 
 func (l *serverLogger) Connect(addr net.Addr, id string, tx uint64) {
+	if l.access != nil {
+		l.access.RecordConnect(addr, id)
+	}
 	logger.Info("client connected", zap.String("addr", addr.String()), zap.String("id", id), zap.Uint64("tx", tx))
 }
 
@@ -1833,6 +1842,9 @@ func (l *serverLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 }
 
 func (l *serverLogger) TCPError(addr net.Addr, id, reqAddr string, err error, upload, download uint64) {
+	if l.access != nil {
+		l.access.RecordTCP(addr, id, reqAddr, upload, download)
+	}
 	total := upload + download
 	if err == nil {
 		logger.Debug("TCP closed",
